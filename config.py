@@ -7,3 +7,6 @@ USE_NAVIGATOR = False
 
 SAVE_STATE_INTERVAL = 50   # Save every N agent steps
 SAVE_STATE_DIR = "saves"
+
+THOUGHTS_LOG_PATH = "thoughts.log"
+THOUGHTS_HTML_PORT = 7861

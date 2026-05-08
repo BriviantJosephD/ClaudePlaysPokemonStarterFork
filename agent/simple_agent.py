@@ -4,7 +4,7 @@ import io
 import logging
 import os
 
-from config import MAX_TOKENS, MODEL_NAME, TEMPERATURE, USE_NAVIGATOR, SAVE_STATE_INTERVAL, SAVE_STATE_DIR
+from config import MAX_TOKENS, MODEL_NAME, TEMPERATURE, USE_NAVIGATOR, SAVE_STATE_INTERVAL, SAVE_STATE_DIR, THOUGHTS_LOG_PATH
 
 from agent.emulator import Emulator
 from anthropic import Anthropic
@@ -25,6 +25,16 @@ def get_screenshot_base64(screenshot, upscale=1):
     buffered = io.BytesIO()
     screenshot.save(buffered, format="PNG")
     return base64.standard_b64encode(buffered.getvalue()).decode()
+
+
+def append_thought(text: str) -> None:
+    """Append a model text block to the rolling thoughts log."""
+    try:
+        from datetime import datetime
+        with open(THOUGHTS_LOG_PATH, "a") as f:
+            f.write(f"[{datetime.now().isoformat(timespec='seconds')}]\n{text}\n\n")
+    except Exception as e:
+        logger.error(f"Failed to write thought: {e}")
 
 
 SYSTEM_PROMPT = """You are playing Pokemon Red. You can see the game screen and control the game by executing emulator commands.
@@ -258,6 +268,7 @@ class SimpleAgent:
                 for block in response.content:
                     if block.type == "text":
                         logger.info(f"[Text] {block.text}")
+                        append_thought(block.text)
                     elif block.type == "tool_use":
                         logger.info(f"[Tool] Using tool: {block.name}")
 

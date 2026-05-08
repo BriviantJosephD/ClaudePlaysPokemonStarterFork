@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<!--
+  Stream of Thought overlay for OBS browser source.
+
+  How to run:
+    From the repository root, start a static HTTP server:
+        python -m http.server 7861
+    Then point an OBS browser source (or your browser) at:
+        http://localhost:7861/thoughts.html
+
+  This page polls thoughts.log (in the same directory) every second
+  and renders its contents in a scrollable monospace panel.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Stream of Thought</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: #0d0d12;
+      color: #e6e6f0;
+      overflow: hidden;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      font-family: "SFMono-Regular", "Menlo", "Consolas", "Liberation Mono", monospace;
+    }
+    header {
+      flex: 0 0 auto;
+      padding: 12px 20px 8px 20px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-style: italic;
+      font-size: 22px;
+      letter-spacing: 0.08em;
+      color: #c8c8e0;
+      border-bottom: 1px solid #1f1f2a;
+      background: #0d0d12;
+    }
+    #panel {
+      flex: 1 1 auto;
+      overflow-y: auto;
+      padding: 16px 20px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      font-size: 16px;
+      line-height: 1.5;
+    }
+    #panel.placeholder {
+      color: #6a6a85;
+      font-style: italic;
+    }
+    /* Hide scrollbar visually but keep scrollability for OBS */
+    #panel::-webkit-scrollbar {
+      width: 6px;
+    }
+    #panel::-webkit-scrollbar-thumb {
+      background: #2a2a3a;
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body>
+  <header>STREAM OF THOUGHT</header>
+  <div id="panel" class="placeholder">Waiting for thoughts...</div>
+
+  <script>
+    const panel = document.getElementById('panel');
+    let lastContent = '';
+
+    function isAtBottom(el) {
+      // Treat near-bottom (within 40px) as bottom for autoscroll.
+      return el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    }
+
+    async function refresh() {
+      try {
+        const res = await fetch('thoughts.log?_=' + Date.now(), { cache: 'no-store' });
+        if (!res.ok) {
+          throw new Error('HTTP ' + res.status);
+        }
+        const text = await res.text();
+        if (text !== lastContent) {
+          const stick = isAtBottom(panel) || panel.classList.contains('placeholder');
+          panel.classList.remove('placeholder');
+          panel.textContent = text || '(log is empty)';
+          lastContent = text;
+          if (stick) {
+            panel.scrollTop = panel.scrollHeight;
+          }
+        }
+      } catch (e) {
+        if (lastContent === '') {
+          panel.classList.add('placeholder');
+          panel.textContent = 'Waiting for thoughts...';
+        }
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 1000);
+  </script>
+</body>
+</html>
