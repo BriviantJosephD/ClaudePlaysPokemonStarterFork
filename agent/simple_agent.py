@@ -4,9 +4,10 @@ import io
 import logging
 import os
 
-from config import MAX_TOKENS, MODEL_NAME, TEMPERATURE, USE_NAVIGATOR, SAVE_STATE_INTERVAL, SAVE_STATE_DIR, THOUGHTS_LOG_PATH, THINKING_ENABLED, THINKING_BUDGET_TOKENS
+from config import MAX_TOKENS, MODEL_NAME, TEMPERATURE, USE_NAVIGATOR, SAVE_STATE_INTERVAL, SAVE_STATE_DIR, THOUGHTS_LOG_PATH, THINKING_ENABLED, THINKING_BUDGET_TOKENS, KNOWLEDGE_BASE_PATH
 
 from agent.emulator import Emulator
+from agent.knowledge_base import KnowledgeBase
 from anthropic import Anthropic
 
 # Set up logging
@@ -82,6 +83,20 @@ AVAILABLE_TOOLS = [
     }
 ]
 
+AVAILABLE_TOOLS.append({
+    "name": "update_knowledge_base",
+    "description": "Add, edit, or delete a section in your long-term knowledge base. Use this to record durable facts, observations, or strategies you want to remember across summarizations.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "operation": {"type": "string", "enum": ["add", "edit", "delete"]},
+            "section_id": {"type": "string", "description": "Identifier for the section (e.g. 'brock', 'starter_choice')"},
+            "content": {"type": "string", "description": "Content for add/edit. Ignored for delete."}
+        },
+        "required": ["operation", "section_id"]
+    }
+})
+
 if USE_NAVIGATOR:
     AVAILABLE_TOOLS.append({
         "name": "navigate_to",
@@ -116,6 +131,7 @@ class SimpleAgent:
         self.emulator = Emulator(rom_path, headless, sound)
         self.emulator.initialize()  # Initialize the emulator
         os.makedirs(SAVE_STATE_DIR, exist_ok=True)
+        self.knowledge_base = KnowledgeBase(KNOWLEDGE_BASE_PATH)
         self.client = Anthropic()
         self.running = True
         self.message_history = [{"role": "user", "content": "You may now begin playing."}]
@@ -216,6 +232,42 @@ class SimpleAgent:
                     {"type": "text", "text": f"\nGame state information from memory after your action:\n{memory_info}"},
                 ],
             }
+        elif tool_name == "update_knowledge_base":
+            operation = tool_input.get("operation")
+            section_id = tool_input.get("section_id")
+            content = tool_input.get("content", "")
+            logger.info(
+                f"[KnowledgeBase] {operation} section '{section_id}'"
+            )
+            try:
+                if operation == "add":
+                    self.knowledge_base.add(section_id, content)
+                    message = f"Knowledge base updated: added section '{section_id}'"
+                elif operation == "edit":
+                    self.knowledge_base.edit(section_id, content)
+                    message = f"Knowledge base updated: edited section '{section_id}'"
+                elif operation == "delete":
+                    self.knowledge_base.delete(section_id)
+                    message = f"Knowledge base updated: deleted section '{section_id}'"
+                else:
+                    message = (
+                        f"Error: unknown knowledge base operation '{operation}'. "
+                        "Must be one of: add, edit, delete."
+                    )
+            except KeyError:
+                message = (
+                    f"Error: section '{section_id}' not found in knowledge base."
+                )
+            except Exception as e:
+                message = f"Error updating knowledge base: {e}"
+
+            return {
+                "type": "tool_result",
+                "tool_use_id": tool_call.id,
+                "content": [
+                    {"type": "text", "text": message},
+                ],
+            }
         else:
             logger.error(f"Unknown tool called: {tool_name}")
             return {
@@ -255,11 +307,13 @@ class SimpleAgent:
                         "budget_tokens": THINKING_BUDGET_TOKENS,
                     }
 
+                system_with_kb = SYSTEM_PROMPT + "\n\n" + self.knowledge_base.render()
+
                 # Get model response
                 response = self.client.messages.create(
                     model=MODEL_NAME,
                     max_tokens=MAX_TOKENS,
-                    system=SYSTEM_PROMPT,
+                    system=system_with_kb,
                     messages=messages,
                     tools=AVAILABLE_TOOLS,
                     temperature=TEMPERATURE,
@@ -382,11 +436,13 @@ class SimpleAgent:
                 "budget_tokens": THINKING_BUDGET_TOKENS,
             }
 
+        system_with_kb = SYSTEM_PROMPT + "\n\n" + self.knowledge_base.render()
+
         # Get summary from Claude
         response = self.client.messages.create(
             model=MODEL_NAME,
             max_tokens=MAX_TOKENS,
-            system=SYSTEM_PROMPT,
+            system=system_with_kb,
             messages=messages,
             temperature=TEMPERATURE,
             **extra_kwargs,
