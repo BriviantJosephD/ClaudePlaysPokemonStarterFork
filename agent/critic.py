@@ -63,6 +63,10 @@ class KnowledgeBaseCritic:
         if not self.enabled:
             return None
 
+        # Log the model name once per review so silent failures (e.g. an
+        # invalid model snapshot string) become diagnosable from the run log.
+        logger.info(f"[Critic] Reviewing KB with model {self.model!r}")
+
         # If KB is empty, give the critic a hint instead of an empty XML blob.
         kb_for_review = knowledge_base_xml.strip() or "<knowledge_base></knowledge_base> (empty)"
 
@@ -91,7 +95,13 @@ class KnowledgeBaseCritic:
             logger.error(f"[Critic] Failed to parse response: {e}")
             return None
 
-        if not text or text == "KB_OK":
+        # Tolerant KB_OK detection: accept "KB_OK", " kb_ok ", "KB_OK.",
+        # "KB_OK!" etc. We strip non-alphanumeric chars from the first token
+        # and compare case-insensitively. This survives common LLM stylistic
+        # variations on the suppression sentinel.
+        first_token = text.split(maxsplit=1)[0] if text else ""
+        normalized = "".join(ch for ch in first_token if ch.isalnum()).upper()
+        if not text or normalized == "KBOK":
             logger.info("[Critic] KB looks fine, no feedback.")
             return None
 

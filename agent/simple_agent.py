@@ -190,6 +190,18 @@ class SimpleAgent:
             logger.info(f"Loading saved state from {load_state}")
             self.emulator.load_state(load_state)
 
+        # One-shot startup log so a viewer of the run log can see exactly
+        # which model + features the agent is configured with.
+        logger.info(
+            "[Config] model=%s temperature=%s max_tokens=%s thinking=%s "
+            "thinking_budget=%s critic_enabled=%s critic_model=%s "
+            "save_interval=%s max_history=%s",
+            MODEL_NAME, TEMPERATURE, MAX_TOKENS,
+            THINKING_ENABLED, THINKING_BUDGET_TOKENS,
+            CRITIC_ENABLED, CRITIC_MODEL,
+            SAVE_STATE_INTERVAL, max_history,
+        )
+
     def process_tool_call(self, tool_call):
         """Process a single tool call."""
         tool_name = tool_call.name

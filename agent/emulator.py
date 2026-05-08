@@ -1,5 +1,6 @@
 import io
 import logging
+import os
 import pickle
 from collections import deque
 import heapq
@@ -44,23 +45,36 @@ class Emulator:
         return Image.fromarray(self.pyboy.screen.ndarray)
 
     def load_state(self, state_filename):
-        """
-        Load a state from a pickled file into the emulator.
-        The pickled file should contain a dictionary with a 'pyboy_state' key.
+        """Load a saved state file into the emulator.
 
         Args:
-            state_filename: Path to the state file
+            state_filename: Path to the state file written by ``save_state``.
         """
-        self.pyboy.load_state(open(state_filename, "rb"))
+        with open(state_filename, "rb") as f:
+            self.pyboy.load_state(f)
 
     def save_state(self, state_filename):
-        """Save the current emulator state to a pickled file.
+        """Save the current emulator state to a file atomically.
+
+        Writes to a sibling ``.tmp`` file first then renames so a crash mid-save
+        cannot leave a truncated state file on disk.
 
         Args:
-            state_filename: Path to write the state file
+            state_filename: Path to write the state file.
         """
-        with open(state_filename, "wb") as f:
-            self.pyboy.save_state(f)
+        tmp_path = f"{state_filename}.tmp"
+        try:
+            with open(tmp_path, "wb") as f:
+                self.pyboy.save_state(f)
+            os.replace(tmp_path, state_filename)
+        except OSError:
+            # Best-effort cleanup of the partial temp file before re-raising.
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except OSError:
+                pass
+            raise
 
     def press_buttons(self, buttons, wait=True):
         """Press a sequence of buttons on the Game Boy.
