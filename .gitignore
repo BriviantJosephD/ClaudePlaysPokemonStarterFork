@@ -48,3 +48,16 @@ ENV/
 
 # System
 .DS_Store
+
+# Agent runtime state — per-run, do not commit
+knowledge_base.json
+saves/
+thoughts.log
+
+# Atomic-write tempfiles and editor backup files
+*.tmp
+*.bak
+
+# Claude Code worktrees and per-machine local settings
+.claude/worktrees/
+.claude/settings.local.json
