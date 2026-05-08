@@ -46,9 +46,12 @@ KNOWLEDGE_BASE_PATH = "knowledge_base.json"
 CRITIC_ENABLED = True
 CRITIC_MODEL = "claude-haiku-4-5"
 CRITIC_MAX_TOKENS = 500
-# Run the critic every Nth summarization. 1 = every summary (default),
-# 2 = every other, etc. Useful for capping cost on multi-day streams where
-# summarization fires roughly every 30 turns.
+# Critic gating semantics:
+#   0 = never run (equivalent to CRITIC_ENABLED=False)
+#   1 = every summarization (default)
+#   N = every Nth summarization
+# Negative values are rejected at import time. Useful for capping cost on
+# multi-day streams where summarization fires roughly every 30 turns.
 CRITIC_INTERVAL = 1
 
 # Walkability image overlay. Doubles per-turn image bandwidth (a second
@@ -57,20 +60,27 @@ CRITIC_INTERVAL = 1
 OVERLAY_ENABLED = True
 
 
-# Fail-fast invariant: Anthropic requires temperature == 1.0 when extended
-# thinking is enabled. Catching this at import time beats getting a 400 from
-# the API five minutes into a long run.
+# Fail-fast invariants — catch obvious misconfiguration at import time
+# instead of letting it explode mid-run.
 assert not THINKING_ENABLED or TEMPERATURE == 1.0, (
     "Anthropic requires TEMPERATURE == 1.0 when THINKING_ENABLED is True"
+)
+assert isinstance(CRITIC_INTERVAL, int) and CRITIC_INTERVAL >= 0, (
+    "CRITIC_INTERVAL must be a non-negative int "
+    "(0 = never, 1 = every summary, N = every Nth)"
 )
 
 
 # Model pricing in USD per million tokens, used by the startup cost estimate.
-# Update from https://www.anthropic.com/pricing as needed. Keys are matched
-# against MODEL_NAME and CRITIC_MODEL via prefix (so dated snapshots like
-# "claude-sonnet-4-5-20250929" map to "claude-sonnet-4-5"). Values are
-# (input, output) per million tokens. Cache-hit pricing is not modeled here;
-# expect actual cost to be 30-60% lower with a stable system prompt.
+# Source: https://www.anthropic.com/pricing  (last verified 2026-05-08)
+# Update when Anthropic posts new list prices — the startup [Cost] log will
+# silently mislead operators otherwise.
+#
+# Keys are matched against MODEL_NAME and CRITIC_MODEL via prefix (so dated
+# snapshots like "claude-sonnet-4-5-20250929" map to "claude-sonnet-4-5").
+# Values are (input, output) per million tokens. Cache-hit pricing is not
+# modeled here; expect realized cost to be 30-60% lower with a stable system
+# prompt due to prompt caching.
 MODEL_PRICING_PER_MTOK = {
     "claude-haiku-4-5":  (1.0, 5.0),
     "claude-sonnet-4-5": (3.0, 15.0),

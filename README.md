@@ -128,21 +128,28 @@ The panel polls `thoughts.log` once per second, dark theme, monospace, autoscrol
 
 Per-turn token shape at default settings (Sonnet 4.5 + thinking + critic + overlay):
 
-- **~6-8k input tokens** per turn — system prompt + rendered KB + screenshot + walkability overlay + RAM state + history
-- **~2k thinking tokens** per turn — extended-thinking budget (`THINKING_BUDGET_TOKENS`)
+- **~7k input tokens** per turn — system prompt + rendered KB + screenshot + walkability overlay + RAM state + history
+- **~2k thinking tokens** per turn — extended-thinking budget (`THINKING_BUDGET_TOKENS`), billed at the output rate
 - **~1k output tokens** per turn — text reasoning + tool-use blocks
 
 Throughput in practice is dominated by thinking + image encoding + emulator stepping: **~8-15 seconds per turn**, so **~250-450 turns per hour**.
 
-Worked cost at Sonnet 4.5 list pricing (~$3 / MTok input, ~$15 / MTok output, thinking billed as output) and 360 turns/hour:
+Worked per-turn cost at Sonnet 4.5 list pricing ($3 / MTok input, $15 / MTok output):
+
+```
+(7,000 × $3 + 3,000 × $15) / 1,000,000  =  $0.021 + $0.045  =  $0.066 / turn
+```
 
 | Scenario | Per-hour estimate |
 |---|---|
-| Default config, no prompt caching | **~$60-120/hr** |
-| Default config, with 75% input cache hit rate (typical for stable system prompt) | **~$25-45/hr** |
-| `OVERLAY_ENABLED=False` + `THINKING_ENABLED=False`, with caching | **~$5-10/hr** but materially weaker agent |
+| Default config, no prompt caching | **~$16-30/hr** |
+| Default config, with 50% input cache hit rate | **~$10-22/hr** |
+| Default config, with 75% input cache hit rate (typical for stable system prompt) | **~$8-18/hr** |
+| `OVERLAY_ENABLED=False` + `THINKING_ENABLED=False`, with caching | **~$1-3/hr** but materially weaker agent |
 
-**A 2,000-step session ≈ 5-8 hours ≈ $150-700 at default config**, depending on caching.  Always confirm against [Anthropic's current pricing](https://www.anthropic.com/pricing) and **set a billing alert in the Anthropic console before launching**.
+The agent prints a matching `[Cost]` line at startup so you can see the live estimate for your configured model.  A small additional Haiku cost is added for the critic (~$0.002 per summarization, ~once every 30 turns).
+
+**A 2,000-step session ≈ 5-8 hours ≈ $50-200 at default config**, depending on caching.  If you swap `MODEL_NAME` to Opus, multiply by ~5×.  Always confirm against [Anthropic's current pricing](https://www.anthropic.com/pricing) and **set a billing alert in the Anthropic console before launching**.
 
 ---
 

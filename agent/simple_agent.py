@@ -194,16 +194,31 @@ class SimpleAgent:
         # triggers a critic review.
         self._summary_count = 0
 
-        # Truncate the rolling thoughts log so each session starts clean and
-        # the file does not grow unbounded across multi-day streams. Best
-        # effort — a failure to truncate is logged but never blocks startup.
+        # Ensure the directory containing THOUGHTS_LOG_PATH exists so
+        # append_thought() can write even when the user points the log at a
+        # subdirectory like "logs/thoughts.log".
+        thoughts_parent = os.path.dirname(THOUGHTS_LOG_PATH)
+        if thoughts_parent:
+            try:
+                os.makedirs(thoughts_parent, exist_ok=True)
+            except OSError as e:
+                logger.error(f"[Thoughts] Failed to create dir {thoughts_parent}: {e}")
+
+        # Roll the rolling thoughts log so each session starts clean and the
+        # file does not grow unbounded across multi-day streams. Archive the
+        # prior file as <path>.prev rather than deleting it — preserves the
+        # last session for forensic review and is atomic on POSIX (the OBS
+        # panel sees the new empty file the next tick instead of mid-write).
         if THOUGHTS_LOG_TRUNCATE_ON_START:
             try:
                 if os.path.exists(THOUGHTS_LOG_PATH):
-                    open(THOUGHTS_LOG_PATH, "w", encoding="utf-8").close()
-                    logger.info(f"[Thoughts] Truncated {THOUGHTS_LOG_PATH} on startup")
+                    archive_path = THOUGHTS_LOG_PATH + ".prev"
+                    os.replace(THOUGHTS_LOG_PATH, archive_path)
+                    logger.info(
+                        f"[Thoughts] Archived prior {THOUGHTS_LOG_PATH} → {archive_path}"
+                    )
             except OSError as e:
-                logger.error(f"[Thoughts] Failed to truncate {THOUGHTS_LOG_PATH}: {e}")
+                logger.error(f"[Thoughts] Failed to archive {THOUGHTS_LOG_PATH}: {e}")
 
         if load_state:
             logger.info(f"Loading saved state from {load_state}")
@@ -257,15 +272,31 @@ class SimpleAgent:
             input_tok * in_per_mtok + (output_tok + thinking_tok) * out_per_mtok
         ) / 1_000_000
 
+        # Critic contribution: amortized across summarizations. The critic
+        # fires every CRITIC_INTERVAL summaries, and each summary fires every
+        # ~30 turns (max_history default). So the per-turn share is divided
+        # by (30 * CRITIC_INTERVAL). Skip when the critic is disabled or the
+        # critic model has no pricing entry.
+        critic = _lookup(CRITIC_MODEL) if CRITIC_ENABLED and CRITIC_INTERVAL > 0 else None
+        if critic:
+            critic_in_mtok, critic_out_mtok = critic
+            # Rough critic shape: small input (KB + summary), short output.
+            critic_input_tok = 2000
+            critic_output_tok = CRITIC_MAX_TOKENS
+            critic_call_cost = (
+                critic_input_tok * critic_in_mtok + critic_output_tok * critic_out_mtok
+            ) / 1_000_000
+            turns_per_summary = 30 * CRITIC_INTERVAL
+            per_turn_cost += critic_call_cost / turns_per_summary
+
         # Throughput: ~8-15s/turn with thinking + tool use + emulator stepping.
-        # Take the midpoint (~11s) → ~330 turns/hour.
         turns_per_hour_low, turns_per_hour_high = 250, 450
         cost_low = per_turn_cost * turns_per_hour_low
         cost_high = per_turn_cost * turns_per_hour_high
 
         logger.info(
-            "[Cost] Per-turn ≈ %.4f USD; expected %d-%d turns/hr → "
-            "~$%.0f-$%.0f/hr at list pricing, no caching. "
+            "[Cost] Per-turn ≈ %.4f USD (incl. amortized critic); "
+            "expected %d-%d turns/hr → ~$%.0f-$%.0f/hr at list pricing, no caching. "
             "Realized cost is typically 30-60%% lower with prompt caching.",
             per_turn_cost,
             turns_per_hour_low, turns_per_hour_high,

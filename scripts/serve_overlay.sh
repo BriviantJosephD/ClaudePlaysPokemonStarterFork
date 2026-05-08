@@ -18,9 +18,16 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
 # Pull THOUGHTS_HTML_PORT from config.py via Python so this stays in sync if
-# the constant changes. Fall back to 7861 if config.py cannot be imported
-# (e.g. someone runs this before installing deps).
-PORT="$(python3 -c "import config; print(config.THOUGHTS_HTML_PORT)" 2>/dev/null || echo 7861)"
+# the constant changes. If config.py cannot be imported (e.g. someone runs
+# this before installing deps), surface the failure as a stderr warning
+# rather than silently falling back — operators should know they are not
+# getting the configured port.
+if PORT="$(python3 -c 'import config; print(config.THOUGHTS_HTML_PORT)' 2>/dev/null)"; then
+  :
+else
+  echo "WARNING: could not import config.py to read THOUGHTS_HTML_PORT; falling back to 7861" >&2
+  PORT=7861
+fi
 
 if [ ! -f "thoughts.html" ]; then
   echo "ERROR: thoughts.html not found in ${REPO_ROOT}" >&2

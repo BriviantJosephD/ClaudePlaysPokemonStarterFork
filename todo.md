@@ -20,22 +20,17 @@ Architectural parity with the production Twitch diagram is **complete** (knowled
 
 ## Tier 2 — Quality polish before "ship and forget" is truthful
 
-- [ ] **Add a test runner.**  Today: `python3 test_reminders.py` works but is manual.
-  - Either add a `Makefile` with `make test`, or rename to `test_reminders.py` → `tests/test_reminders.py` and document `pytest` invocation.
-  - CI is out of scope for now but a one-liner test command is in scope.
+- [x] **Test runner.**  `Makefile` with `install`/`test`/`smoke`/`run`/`serve-overlay`/`verify-models`/`clean` targets.  `make verify-models` resolves the configured aliases via the free `models.retrieve` endpoint and refuses to run without `ANTHROPIC_API_KEY`.
 
-- [ ] **Token-cost visibility at startup.**  Extend the `[Config]` log line in `agent/simple_agent.py` to include a rough per-turn token estimate (system prompt + screenshot + overlay + memory ≈ ~5-8k input, ~2-3k thinking, ~1k output).  Print expected $/hour at the configured rate so a long-run user knows what they're committing to.
+- [x] **Token-cost visibility at startup.**  New `MODEL_PRICING_PER_MTOK` table in `config.py` + `_log_cost_estimate()` method on `SimpleAgent` prints expected per-turn USD and per-hour ranges including the amortized critic contribution.  Pricing source URL and last-verified date documented inline.
 
-- [ ] **Rotate `thoughts.log`.**  Currently grows unbounded.  Options (pick one):
-  - Truncate on every `SimpleAgent.__init__` (simplest; loses prior session)
-  - Cap at N MB and rotate to `thoughts.log.1` (more familiar)
-  - Cap at last N entries via in-memory ring + periodic flush
+- [x] **Roll `thoughts.log`.**  `THOUGHTS_LOG_TRUNCATE_ON_START` (default `True`).  `SimpleAgent.__init__` archives the prior log to `<path>.prev` rather than truncating in place — preserves the last session and is atomic on POSIX.  Mkdirs the parent directory so users can point the log at a subdirectory like `logs/thoughts.log`.
 
-- [ ] **Helper script for the OBS overlay.**  Add `scripts/serve_overlay.sh` (or a Makefile target) that runs `python -m http.server $THOUGHTS_HTML_PORT` from the repo root.  Reduces "what command was that again" friction.
+- [x] **OBS overlay helper.**  `scripts/serve_overlay.sh` `cd`s to repo root regardless of cwd, sources port from `config.py` with a stderr warning on fallback, prints the OBS Browser Source URL.
 
-- [ ] **Fainted-Pokemon reminder.**  Reviewer flagged this and we deferred.  Add a sixth rule in `agent/reminders.py` that fires when ANY party member has `HP: 0/X` — message: "A Pokemon has fainted.  Switch to a healthy Pokemon or use a Revive."
+- [x] **Fainted-Pokemon reminder.**  HP rule in `agent/reminders.py` distinguishes fainted (HP == 0, switch/Revive) from low (0 < HP/max < 25%, PokeCenter); both can fire in the same turn.  Two new tests cover the dedicated reminder and combined firing.
 
-- [ ] **`CRITIC_INTERVAL` knob.**  Critic currently runs on every summarization (~every 30 turns).  For 24-hour streams that's 50-100 critic calls.  Add a config knob to run the critic every N summarizations instead of every one; default to 1 (current behavior).
+- [x] **`CRITIC_INTERVAL` knob.**  New config constant (default `1`).  `SimpleAgent.summarize_history` gates the critic on `summary_count % CRITIC_INTERVAL == 0` and logs skips so the cadence is verifiable in long runs.  Import-time `assert` rejects negative values.
 
 ---
 
@@ -68,3 +63,4 @@ Architectural parity with the production Twitch diagram is **complete** (knowled
 - [x] Code review fixes (XML escaping, atomic writes, redacted_thinking, dialog "None" sentinel)
 - [x] Unit tests for the reminders module (13/13 passing)
 - [x] **Tier 1 ship-and-forget readiness** — model alias bump, free model verification snippet, `.gitignore` for runtime artifacts, full README rewrite with bounded-session pattern, defensible cost math, OBS setup, ROM legality note, dated-snapshot placeholder pattern, `TEMPERATURE`/`THINKING` import-time assert
+- [x] **Tier 2 quality polish** — Makefile (test/run/serve/verify/clean), startup `[Cost]` log with critic-amortized pricing, `thoughts.log` rotation via archive-to-`.prev`, `scripts/serve_overlay.sh`, fainted-Pokemon reminder, `CRITIC_INTERVAL` config knob

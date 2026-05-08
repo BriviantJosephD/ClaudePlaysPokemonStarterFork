@@ -26,11 +26,18 @@ serve-overlay:
 	./scripts/serve_overlay.sh
 
 verify-models:
+	@if [ -z "$$ANTHROPIC_API_KEY" ]; then \
+		echo "ERROR: ANTHROPIC_API_KEY is not set. export it and re-run." >&2; \
+		exit 1; \
+	fi
 	@python3 -c "from anthropic import Anthropic; c=Anthropic(); \
 import config; \
 print('MODEL_NAME  →', c.models.retrieve(config.MODEL_NAME).id); \
 print('CRITIC_MODEL→', c.models.retrieve(config.CRITIC_MODEL).id)"
 
+# NOTE: clean intentionally does NOT touch saves/, knowledge_base.json, or
+# thoughts.log — those are session artifacts the user often wants to keep.
+# Delete them by hand if you really want a fresh state.
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
