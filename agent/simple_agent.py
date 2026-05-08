@@ -4,7 +4,7 @@ import io
 import logging
 import os
 
-from config import MAX_TOKENS, MODEL_NAME, TEMPERATURE, USE_NAVIGATOR, SAVE_STATE_INTERVAL, SAVE_STATE_DIR, THOUGHTS_LOG_PATH
+from config import MAX_TOKENS, MODEL_NAME, TEMPERATURE, USE_NAVIGATOR, SAVE_STATE_INTERVAL, SAVE_STATE_DIR, THOUGHTS_LOG_PATH, THINKING_ENABLED, THINKING_BUDGET_TOKENS
 
 from agent.emulator import Emulator
 from anthropic import Anthropic
@@ -247,6 +247,14 @@ class SimpleAgent:
                         messages[-3]["content"][-1]["cache_control"] = {"type": "ephemeral"}
 
 
+                # Build optional thinking kwarg
+                extra_kwargs = {}
+                if THINKING_ENABLED:
+                    extra_kwargs["thinking"] = {
+                        "type": "enabled",
+                        "budget_tokens": THINKING_BUDGET_TOKENS,
+                    }
+
                 # Get model response
                 response = self.client.messages.create(
                     model=MODEL_NAME,
@@ -255,6 +263,7 @@ class SimpleAgent:
                     messages=messages,
                     tools=AVAILABLE_TOOLS,
                     temperature=TEMPERATURE,
+                    **extra_kwargs,
                 )
 
                 logger.info(f"Response usage: {response.usage}")
@@ -271,13 +280,23 @@ class SimpleAgent:
                         append_thought(block.text)
                     elif block.type == "tool_use":
                         logger.info(f"[Tool] Using tool: {block.name}")
+                    elif block.type == "thinking":
+                        logger.info(f"[Thinking] {block.thinking}")
 
                 # Process tool calls
                 if tool_calls:
                     # Add assistant message to history
+                    # Preserve thinking blocks in original order before tool_use blocks
+                    # so subsequent tool_result turns are accepted by the API.
                     assistant_content = []
                     for block in response.content:
-                        if block.type == "text":
+                        if block.type == "thinking":
+                            assistant_content.append({
+                                "type": "thinking",
+                                "thinking": block.thinking,
+                                "signature": block.signature,
+                            })
+                        elif block.type == "text":
                             assistant_content.append({"type": "text", "text": block.text})
                         elif block.type == "tool_use":
                             assistant_content.append({"type": "tool_use", **dict(block)})
@@ -355,13 +374,22 @@ class SimpleAgent:
             }
         ]
         
+        # Build optional thinking kwarg
+        extra_kwargs = {}
+        if THINKING_ENABLED:
+            extra_kwargs["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": THINKING_BUDGET_TOKENS,
+            }
+
         # Get summary from Claude
         response = self.client.messages.create(
             model=MODEL_NAME,
             max_tokens=MAX_TOKENS,
             system=SYSTEM_PROMPT,
             messages=messages,
-            temperature=TEMPERATURE
+            temperature=TEMPERATURE,
+            **extra_kwargs,
         )
         
         # Extract the summary text
