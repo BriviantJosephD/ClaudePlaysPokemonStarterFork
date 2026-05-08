@@ -8,32 +8,13 @@ Architectural parity with the production Twitch diagram is **complete** (knowled
 
 ## Tier 1 — Must-have to run a real session
 
-- [ ] **Verify `CRITIC_MODEL` is a valid Anthropic model name.**  Currently `claude-haiku-4-5` in `config.py:22`.  If invalid, the critic silently fails (errors are swallowed by design) and the KB hygiene loop is dead.
-  - Test: `python -c "from anthropic import Anthropic; Anthropic().messages.create(model='claude-haiku-4-5', max_tokens=10, messages=[{'role':'user','content':'hi'}])"`
-  - If it 404s, replace with a working dated snapshot (e.g. `claude-haiku-4-5-20251001` or fall back to `claude-3-5-haiku-20241022`).
-  - On success, log the resolved model name once at startup so future failures are obvious in the run log.
+- [x] **Verify `CRITIC_MODEL` and document silent-failure behavior.**  Replaced billable `messages.create` probe with free `client.models.retrieve()` snippet in both `config.py` and README.  Documented silent-failure in the README config-knob row.
 
-- [ ] **Update `MODEL_NAME` to a current Sonnet/Opus.**  `claude-3-7-sonnet-20250219` (`config.py:2`) is the Feb 2025 snapshot.  The public Twitch stream runs on Opus 4.7.  Pick a model intentionally and document the choice in the README.  Note: extended thinking requires `temperature=1.0`, so do not change `TEMPERATURE`.
+- [x] **Update `MODEL_NAME` to a current Sonnet.**  Bumped from `claude-3-7-sonnet-20250219` to the alias `claude-sonnet-4-5`.  Documented alias-vs-snapshot tradeoff.  Added an import-time `assert` enforcing `TEMPERATURE == 1.0` when `THINKING_ENABLED`.
 
-- [ ] **Add `.gitignore` covering runtime artifacts.**  Without this, `git add -A` will sweep up:
-  - `pokemon.gb` (copyrighted ROM — must never land in the fork)
-  - `knowledge_base.json` (per-run state, leaks playthrough info into commits)
-  - `thoughts.log` (large, ephemeral)
-  - `saves/` (binary state files, large)
-  - `__pycache__/` and `*.pyc` (already polluting some commits)
-  - `*.tmp` (atomic-write artifacts that may exist on crash)
-  - `.bak` files (sed leftovers)
+- [x] **`.gitignore` for runtime artifacts.**  Added `knowledge_base.json`, `saves/`, `thoughts.log`, `*.tmp`, `*.bak`, `.claude/worktrees/`, `.claude/settings.local.json`, `.venv/`, `.pytest_cache/`, `.ruff_cache/`, `.mypy_cache/`.  ROM (`*.gb`) and `.env` were already covered.
 
-- [ ] **Write `README.md`.**  At minimum:
-  - One-paragraph project description and link to upstream `davidhershey/ClaudePlaysPokemonStarter`
-  - **Required:** how to provide `pokemon.gb` (legally owned ROM, not provided)
-  - **Setup:** `pip install -r requirements.txt`, `ANTHROPIC_API_KEY` env var
-  - **Run a real session:** the default `--steps 10` is for testing; recommend `--steps 100000` or running in a loop
-  - **Stream the reasoning panel:** `python -m http.server 7861` then point OBS browser source at `http://localhost:7861/thoughts.html`
-  - **Config knobs** in `config.py` with what each costs (especially `OVERLAY_ENABLED` doubling image bandwidth, `THINKING_BUDGET_TOKENS`, `CRITIC_ENABLED`)
-  - **Estimated API cost** per hour at the default config so users go in eyes-open
-  - **Knowledge base lifecycle:** `knowledge_base.json` persists across runs; delete to reset
-  - **Save states:** `saves/autosave_step_N.state`, load via `--load-state PATH`
+- [x] **`README.md`.**  Full rewrite landed.  Setup, real-session pattern (bounded `--steps 2000` + resume from latest save), OBS overlay setup with explicit cwd, every config knob with cost notes, defensible cost estimate (~$25-120/hr at default config with worked math), file map, tests, model-selection guidance with `YYYYMMDD` placeholder pattern, ROM legal/practical note.
 
 ---
 
@@ -86,3 +67,4 @@ Architectural parity with the production Twitch diagram is **complete** (knowled
 - [x] Enriched system prompt with tool tips and weakness reminders
 - [x] Code review fixes (XML escaping, atomic writes, redacted_thinking, dialog "None" sentinel)
 - [x] Unit tests for the reminders module (13/13 passing)
+- [x] **Tier 1 ship-and-forget readiness** — model alias bump, free model verification snippet, `.gitignore` for runtime artifacts, full README rewrite with bounded-session pattern, defensible cost math, OBS setup, ROM legality note, dated-snapshot placeholder pattern, `TEMPERATURE`/`THINKING` import-time assert
