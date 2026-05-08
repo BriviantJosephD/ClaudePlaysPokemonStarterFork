@@ -52,7 +52,7 @@ ENV/
 # Agent runtime state — per-run, do not commit
 knowledge_base.json
 saves/
-thoughts.log
+thoughts.log               # redundant with *.log above; kept for clarity
 
 # Atomic-write tempfiles and editor backup files
 *.tmp
@@ -61,3 +61,9 @@ thoughts.log
 # Claude Code worktrees and per-machine local settings
 .claude/worktrees/
 .claude/settings.local.json
+
+# Python venvs and tool caches
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/

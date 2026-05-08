@@ -6,10 +6,11 @@
 # determinism across runs (e.g. for benchmarking), swap to the dated snapshot
 # string for the same model — see the README "Model selection" section.
 #
-# To verify a model name resolves before a long run:
+# To verify a model name resolves before a long run (free; no token spend):
 #     ANTHROPIC_API_KEY=$KEY python -c "from anthropic import Anthropic; \
-#         print(Anthropic().messages.create(model='claude-sonnet-4-5', \
-#         max_tokens=10, messages=[{'role':'user','content':'hi'}]).model)"
+#         print(Anthropic().models.retrieve('claude-sonnet-4-5').id)"
+# A 404 means the alias is wrong — try a dated snapshot from
+# https://docs.claude.com/en/docs/about-claude/models
 
 # Main agent model. Sonnet 4.5 is the default — strong tool-use behavior,
 # supports extended thinking, costs roughly 1/5 of Opus per token. For the
@@ -46,3 +47,11 @@ CRITIC_MAX_TOKENS = 500
 # 320x288 PNG alongside the plain screenshot). Set to False if running long
 # sessions where token cost matters more than navigator-style grounding.
 OVERLAY_ENABLED = True
+
+
+# Fail-fast invariant: Anthropic requires temperature == 1.0 when extended
+# thinking is enabled. Catching this at import time beats getting a 400 from
+# the API five minutes into a long run.
+assert not THINKING_ENABLED or TEMPERATURE == 1.0, (
+    "Anthropic requires TEMPERATURE == 1.0 when THINKING_ENABLED is True"
+)
