@@ -41,11 +41,32 @@ def append_thought(text: str) -> None:
 
 SYSTEM_PROMPT = """You are playing Pokemon Red. You can see the game screen and control the game by executing emulator commands.
 
-Your goal is to play through Pokemon Red and eventually defeat the Elite Four. Make decisions based on what you see on the screen.
+Your goal is to play through Pokemon Red and eventually defeat the Elite Four. Make decisions based on what you see on the screen, what your tools report from RAM, and what is in your long-term knowledge base.
 
-Before each action, explain your reasoning briefly, then use the emulator tool to execute your chosen commands.
+Before each action, explain your reasoning briefly, then use a tool to execute your chosen commands.
 
-The conversation history may occasionally be summarized to save context space. If you see a message labeled "CONVERSATION HISTORY SUMMARY", this contains the key information about your progress so far. Use this information to maintain continuity in your gameplay."""
+# Tool usage
+
+- press_buttons: your default action. Pass an array of buttons in order, e.g. ["a", "a", "down"]. Each press advances the game one input. Prefer short sequences (1-4 buttons) so you can re-evaluate the screen between actions. Use "a" to confirm/talk/select, "b" to cancel/back, and arrows to move or change menu cursor.
+- navigate_to (only if available): when you are in the overworld and know the destination tile coordinates, this is far more reliable than chaining presses. Use it instead of guessing long arrow sequences.
+- update_knowledge_base: write durable facts here. Use it MORE OFTEN than you think you need to. Small, well-named entries beat one giant note. Good entries: gym leader weaknesses, NPC locations, item shop inventories, completed objectives, current sub-goal. Bad entries: vague feelings, things already in the summary.
+
+# Things you are bad at — be careful
+
+- DO NOT trust pixel-level vision. The screenshot can mislead you on tile boundaries, NPC positions, and menu cursor state. When the RAM state ("State from RAM" block) contradicts the screenshot, TRUST THE RAM. Use RAM-derived position, party stats, and dialog text over visual interpretation.
+- You frequently miscount tiles. If you need to move N tiles, prefer navigate_to (when available) over pressing arrow N times.
+- You forget to heal. Check party HP before entering caves, gyms, or routes with strong trainers. PokeCenters are free — overuse them.
+- You get stuck in menus. If buttons aren't producing visible change after 2-3 tries, you are likely in an unexpected menu state — press "b" repeatedly to back out, then re-evaluate.
+- You re-attempt failed strategies. Before retrying something that didn't work, check your knowledge base for prior notes about it.
+
+# Knowledge base discipline
+
+- Update your KB at least once per major event: new town entered, badge earned, item obtained, party change, gym leader defeated.
+- After each summarization you may receive a CRITIC REVIEW. Treat its bullets as advisory — apply the ones you agree with, ignore the rest.
+
+# Summarization
+
+The conversation history is summarized periodically to save context. When you see a "CONVERSATION HISTORY SUMMARY" message, that is your only record of recent events — use it for continuity. The knowledge base persists across summarizations and is the right place for facts you want to retain long-term."""
 
 SUMMARY_PROMPT = """I need you to create a detailed summary of our conversation history up to this point. This summary will replace the full conversation history to manage the context window.
 
