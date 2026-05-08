@@ -47,11 +47,20 @@ class Emulator:
         """
         Load a state from a pickled file into the emulator.
         The pickled file should contain a dictionary with a 'pyboy_state' key.
-        
+
         Args:
             state_filename: Path to the state file
         """
         self.pyboy.load_state(open(state_filename, "rb"))
+
+    def save_state(self, state_filename):
+        """Save the current emulator state to a pickled file.
+
+        Args:
+            state_filename: Path to write the state file
+        """
+        with open(state_filename, "wb") as f:
+            self.pyboy.save_state(f)
 
     def press_buttons(self, buttons, wait=True):
         """Press a sequence of buttons on the Game Boy.

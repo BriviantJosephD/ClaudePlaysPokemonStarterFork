@@ -4,7 +4,7 @@ import io
 import logging
 import os
 
-from config import MAX_TOKENS, MODEL_NAME, TEMPERATURE, USE_NAVIGATOR
+from config import MAX_TOKENS, MODEL_NAME, TEMPERATURE, USE_NAVIGATOR, SAVE_STATE_INTERVAL, SAVE_STATE_DIR
 
 from agent.emulator import Emulator
 from anthropic import Anthropic
@@ -105,6 +105,7 @@ class SimpleAgent:
         """
         self.emulator = Emulator(rom_path, headless, sound)
         self.emulator.initialize()  # Initialize the emulator
+        os.makedirs(SAVE_STATE_DIR, exist_ok=True)
         self.client = Anthropic()
         self.running = True
         self.message_history = [{"role": "user", "content": "You may now begin playing."}]
@@ -291,6 +292,14 @@ class SimpleAgent:
 
                 steps_completed += 1
                 logger.info(f"Completed step {steps_completed}/{num_steps}")
+
+                if steps_completed % SAVE_STATE_INTERVAL == 0:
+                    save_path = os.path.join(SAVE_STATE_DIR, f"autosave_step_{steps_completed}.state")
+                    try:
+                        self.emulator.save_state(save_path)
+                        logger.info(f"[Save] Wrote state to {save_path}")
+                    except Exception as e:
+                        logger.error(f"[Save] Failed to write state: {e}")
 
             except KeyboardInterrupt:
                 logger.info("Received keyboard interrupt, stopping")
