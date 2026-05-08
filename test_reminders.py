@@ -49,11 +49,30 @@ def test_healthy_party_no_pokecenter_reminder():
 
 
 def test_fainted_does_not_trigger_low_hp():
-    # cur == 0 means fainted — that's a different reminder family, so the
-    # low-HP rule must NOT fire on a HP: 0/X line alone.
+    # A fainted Pokemon (HP == 0) must NOT trigger the "low HP / PokeCenter"
+    # reminder — that reminder is for surviving-but-hurt teams.
     memory = "Pokemon Party:\nCHARIZARD\nLevel 30 - HP: 0/100"
     out = compute_helpful_reminders(memory, None, "")
-    assert not any("PokeCenter" in r for r in out), f"fainted-only should not trigger low HP: {out!r}"
+    assert not any("Party HP is low" in r for r in out), f"fainted-only should not trigger low HP: {out!r}"
+
+
+def test_fainted_triggers_dedicated_reminder():
+    memory = "Pokemon Party:\nCHARIZARD\nLevel 30 - HP: 0/100"
+    out = compute_helpful_reminders(memory, None, "")
+    assert any("fainted" in r.lower() for r in out), f"expected fainted reminder, got {out!r}"
+
+
+def test_fainted_and_low_hp_both_fire():
+    # One Pokemon fainted, another low-HP. Both reminders should appear
+    # because they prescribe different actions (Revive vs PokeCenter).
+    memory = (
+        "Pokemon Party:\n"
+        "CHARIZARD\nLevel 30 - HP: 0/100\n"
+        "WARTORTLE\nLevel 20 - HP: 4/30\n"
+    )
+    out = compute_helpful_reminders(memory, None, "")
+    assert any("fainted" in r.lower() for r in out), f"expected fainted reminder, got {out!r}"
+    assert any("Party HP is low" in r for r in out), f"expected low-HP reminder, got {out!r}"
 
 
 def test_dialog_present_triggers_reminder():
@@ -135,6 +154,8 @@ if __name__ == "__main__":
         test_low_hp_outside_party_does_not_trigger,
         test_healthy_party_no_pokecenter_reminder,
         test_fainted_does_not_trigger_low_hp,
+        test_fainted_triggers_dedicated_reminder,
+        test_fainted_and_low_hp_both_fire,
         test_dialog_present_triggers_reminder,
         test_dialog_none_does_not_trigger,
         test_battle_state_triggers_reminder,

@@ -5,7 +5,7 @@ import logging
 import os
 from datetime import datetime
 
-from config import MAX_TOKENS, MODEL_NAME, TEMPERATURE, USE_NAVIGATOR, SAVE_STATE_INTERVAL, SAVE_STATE_DIR, THOUGHTS_LOG_PATH, THINKING_ENABLED, THINKING_BUDGET_TOKENS, KNOWLEDGE_BASE_PATH, CRITIC_ENABLED, CRITIC_MODEL, CRITIC_MAX_TOKENS, OVERLAY_ENABLED
+from config import MAX_TOKENS, MODEL_NAME, TEMPERATURE, USE_NAVIGATOR, SAVE_STATE_INTERVAL, SAVE_STATE_DIR, THOUGHTS_LOG_PATH, THOUGHTS_LOG_TRUNCATE_ON_START, THINKING_ENABLED, THINKING_BUDGET_TOKENS, KNOWLEDGE_BASE_PATH, CRITIC_ENABLED, CRITIC_MODEL, CRITIC_MAX_TOKENS, CRITIC_INTERVAL, OVERLAY_ENABLED, MODEL_PRICING_PER_MTOK
 
 from agent.critic import KnowledgeBaseCritic
 from agent.emulator import Emulator
@@ -189,6 +189,22 @@ class SimpleAgent:
         # save-state interval triggers correctly even when the caller invokes
         # run() in small batches (e.g. main.py default --steps 10).
         self._total_steps = 0
+        # Number of summarization events that have fired this session. Used
+        # to gate the critic on CRITIC_INTERVAL — only every Nth summary
+        # triggers a critic review.
+        self._summary_count = 0
+
+        # Truncate the rolling thoughts log so each session starts clean and
+        # the file does not grow unbounded across multi-day streams. Best
+        # effort — a failure to truncate is logged but never blocks startup.
+        if THOUGHTS_LOG_TRUNCATE_ON_START:
+            try:
+                if os.path.exists(THOUGHTS_LOG_PATH):
+                    open(THOUGHTS_LOG_PATH, "w", encoding="utf-8").close()
+                    logger.info(f"[Thoughts] Truncated {THOUGHTS_LOG_PATH} on startup")
+            except OSError as e:
+                logger.error(f"[Thoughts] Failed to truncate {THOUGHTS_LOG_PATH}: {e}")
+
         if load_state:
             logger.info(f"Loading saved state from {load_state}")
             self.emulator.load_state(load_state)
@@ -198,11 +214,62 @@ class SimpleAgent:
         logger.info(
             "[Config] model=%s temperature=%s max_tokens=%s thinking=%s "
             "thinking_budget=%s critic_enabled=%s critic_model=%s "
-            "save_interval=%s max_history=%s",
+            "critic_interval=%s overlay=%s save_interval=%s max_history=%s",
             MODEL_NAME, TEMPERATURE, MAX_TOKENS,
             THINKING_ENABLED, THINKING_BUDGET_TOKENS,
-            CRITIC_ENABLED, CRITIC_MODEL,
-            SAVE_STATE_INTERVAL, max_history,
+            CRITIC_ENABLED, CRITIC_MODEL, CRITIC_INTERVAL,
+            OVERLAY_ENABLED, SAVE_STATE_INTERVAL, max_history,
+        )
+        self._log_cost_estimate()
+
+    def _log_cost_estimate(self):
+        """Print an order-of-magnitude $/hour estimate for the configured run.
+
+        Uses the per-turn token shape from the README and looks up pricing
+        in MODEL_PRICING_PER_MTOK by prefix-match (so dated snapshots like
+        "claude-sonnet-4-5-20250929" still resolve). Cache-hit pricing is
+        not modeled — expect realized cost to be 30-60% lower with a stable
+        system prompt. Logs a warning and skips silently if pricing is not
+        configured for the chosen model.
+        """
+        def _lookup(model_id):
+            for prefix, prices in MODEL_PRICING_PER_MTOK.items():
+                if model_id.startswith(prefix):
+                    return prices
+            return None
+
+        main = _lookup(MODEL_NAME)
+        if main is None:
+            logger.warning(
+                "[Cost] No pricing configured for model %r; "
+                "edit MODEL_PRICING_PER_MTOK in config.py to enable estimates.",
+                MODEL_NAME,
+            )
+            return
+
+        in_per_mtok, out_per_mtok = main
+        # Per-turn shape from the README's worked example.
+        input_tok = 7000
+        output_tok = 1000
+        thinking_tok = THINKING_BUDGET_TOKENS if THINKING_ENABLED else 0
+        # Thinking is billed at the output rate per Anthropic's pricing model.
+        per_turn_cost = (
+            input_tok * in_per_mtok + (output_tok + thinking_tok) * out_per_mtok
+        ) / 1_000_000
+
+        # Throughput: ~8-15s/turn with thinking + tool use + emulator stepping.
+        # Take the midpoint (~11s) → ~330 turns/hour.
+        turns_per_hour_low, turns_per_hour_high = 250, 450
+        cost_low = per_turn_cost * turns_per_hour_low
+        cost_high = per_turn_cost * turns_per_hour_high
+
+        logger.info(
+            "[Cost] Per-turn ≈ %.4f USD; expected %d-%d turns/hr → "
+            "~$%.0f-$%.0f/hr at list pricing, no caching. "
+            "Realized cost is typically 30-60%% lower with prompt caching.",
+            per_turn_cost,
+            turns_per_hour_low, turns_per_hour_high,
+            cost_low, cost_high,
         )
 
     def _build_emulator_tool_result(self, tool_use_id, action_summary, screenshot_intro):
@@ -582,10 +649,21 @@ class SimpleAgent:
         # Run the knowledge-base critic. Returns None if disabled, KB is fine,
         # or the API call fails. Any feedback gets appended to the next turn's
         # user message so the main agent self-corrects its KB hygiene.
-        critique = self.critic.review(
-            knowledge_base_xml=self.knowledge_base.render(),
-            summary_text=summary_text,
-        )
+        # Gated by CRITIC_INTERVAL: the critic runs only on every Nth
+        # summarization event (1 = every summary; 2 = every other; etc.).
+        # Skipped intervals are logged so the user can verify the cadence.
+        self._summary_count += 1
+        if CRITIC_INTERVAL <= 0 or self._summary_count % CRITIC_INTERVAL != 0:
+            logger.info(
+                "[Critic] Skipped (summary %d, interval %d)",
+                self._summary_count, CRITIC_INTERVAL,
+            )
+            critique = None
+        else:
+            critique = self.critic.review(
+                knowledge_base_xml=self.knowledge_base.render(),
+                summary_text=summary_text,
+            )
 
         # Build the rebuilt history's content blocks.
         new_content = [

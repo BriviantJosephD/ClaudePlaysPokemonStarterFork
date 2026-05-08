@@ -26,6 +26,10 @@ SAVE_STATE_DIR = "saves"
 
 THOUGHTS_LOG_PATH = "thoughts.log"
 THOUGHTS_HTML_PORT = 7861
+# Truncate thoughts.log on agent startup. The OBS panel shows a rolling stream
+# of recent reasoning, so keeping prior sessions across runs is rarely useful
+# and the file would otherwise grow unbounded over multi-day streams.
+THOUGHTS_LOG_TRUNCATE_ON_START = True
 
 # Extended thinking ("Reasoning" panel on the public stream). Budget must be
 # strictly less than MAX_TOKENS. Thinking output counts toward MAX_TOKENS.
@@ -42,6 +46,10 @@ KNOWLEDGE_BASE_PATH = "knowledge_base.json"
 CRITIC_ENABLED = True
 CRITIC_MODEL = "claude-haiku-4-5"
 CRITIC_MAX_TOKENS = 500
+# Run the critic every Nth summarization. 1 = every summary (default),
+# 2 = every other, etc. Useful for capping cost on multi-day streams where
+# summarization fires roughly every 30 turns.
+CRITIC_INTERVAL = 1
 
 # Walkability image overlay. Doubles per-turn image bandwidth (a second
 # 320x288 PNG alongside the plain screenshot). Set to False if running long
@@ -55,3 +63,20 @@ OVERLAY_ENABLED = True
 assert not THINKING_ENABLED or TEMPERATURE == 1.0, (
     "Anthropic requires TEMPERATURE == 1.0 when THINKING_ENABLED is True"
 )
+
+
+# Model pricing in USD per million tokens, used by the startup cost estimate.
+# Update from https://www.anthropic.com/pricing as needed. Keys are matched
+# against MODEL_NAME and CRITIC_MODEL via prefix (so dated snapshots like
+# "claude-sonnet-4-5-20250929" map to "claude-sonnet-4-5"). Values are
+# (input, output) per million tokens. Cache-hit pricing is not modeled here;
+# expect actual cost to be 30-60% lower with a stable system prompt.
+MODEL_PRICING_PER_MTOK = {
+    "claude-haiku-4-5":  (1.0, 5.0),
+    "claude-sonnet-4-5": (3.0, 15.0),
+    "claude-opus-4-5":   (15.0, 75.0),
+    # Older snapshots — kept for users who pin to legacy models
+    "claude-3-5-haiku":  (0.80, 4.0),
+    "claude-3-5-sonnet": (3.0, 15.0),
+    "claude-3-7-sonnet": (3.0, 15.0),
+}

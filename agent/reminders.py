@@ -37,25 +37,39 @@ def compute_helpful_reminders(memory_info, collision_map, action_summary):
     """
     reminders = []
 
-    # 1) Low-HP warning: scan ONLY the "Pokemon Party:" section so any future
-    # enemy-HP fields elsewhere in memory_info cannot trigger a "visit a
-    # PokeCenter" reminder when the player is actually winning. Fires once
-    # if any party member is below 25% of max and not fainted.
+    # 1) Low-HP and fainted-Pokemon warnings: scan ONLY the "Pokemon Party:"
+    # section so any future enemy-HP fields cannot trigger a "visit a
+    # PokeCenter" reminder when the player is actually winning. The two
+    # signals warrant different actions, so they are emitted as separate
+    # reminders (and can fire together when one Pokemon is fainted and
+    # another is low):
+    #   - HP == 0 → switch / Revive
+    #   - 0 < HP/max < 25% → visit PokeCenter
     try:
         if isinstance(memory_info, str):
             party_match = _PARTY_HEADER.search(memory_info)
             party_text = memory_info[party_match.end():] if party_match else ""
+            saw_low = False
+            saw_fainted = False
             for cur_s, max_s in _HP_PATTERN.findall(party_text):
                 cur = int(cur_s)
                 cap = int(max_s)
-                # cur > 0 excludes fainted Pokemon, which need a different
-                # reminder (Revive / switch) — not "visit a PokeCenter".
-                if cap > 0 and cur > 0 and (cur / cap) < 0.25:
-                    reminders.append(
-                        "Party HP is low — consider visiting a PokeCenter "
-                        "before the next battle."
-                    )
-                    break
+                if cap <= 0:
+                    continue
+                if cur == 0:
+                    saw_fainted = True
+                elif (cur / cap) < 0.25:
+                    saw_low = True
+            if saw_fainted:
+                reminders.append(
+                    "A party Pokemon has fainted. Switch to a healthy "
+                    "Pokemon, use a Revive, or visit a PokeCenter."
+                )
+            if saw_low:
+                reminders.append(
+                    "Party HP is low — consider visiting a PokeCenter "
+                    "before the next battle."
+                )
     except Exception as e:  # noqa: BLE001 — defensive; rule must not crash
         logger.debug(f"[Reminders] HP rule failed: {e}")
 
