@@ -202,6 +202,80 @@ class SimpleAgent:
             SAVE_STATE_INTERVAL, max_history,
         )
 
+    def _build_emulator_tool_result(self, tool_use_id, action_summary, screenshot_intro):
+        """Build a tool_result for press_buttons or navigate_to.
+
+        Captures a fresh screenshot (raw and walkability-overlay variants),
+        the parsed RAM state, and the ASCII collision map for logging. The
+        overlay image is included when available; if rendering fails the
+        result still contains the plain screenshot.
+
+        Args:
+            tool_use_id: ID of the originating tool_use block.
+            action_summary: First text block describing what happened, e.g.
+                "Pressed buttons: a, b" or "Navigation result: ...".
+            screenshot_intro: Short label preceding the plain screenshot.
+        """
+        # Plain screenshot, upscaled 2x for legibility.
+        screenshot = self.emulator.get_screenshot()
+        screenshot_b64 = get_screenshot_base64(screenshot, upscale=2)
+
+        # Walkability image overlay. None on failure — degrade gracefully.
+        overlay_img = self.emulator.get_collision_overlay_image()
+        overlay_b64 = (
+            get_screenshot_base64(overlay_img, upscale=1) if overlay_img is not None else None
+        )
+
+        # RAM-derived state (canonical source of truth) and ASCII collision
+        # map (for logs only — the image overlay is the model-visible version).
+        memory_info = self.emulator.get_state_from_memory()
+        logger.info("[Memory State after action]")
+        logger.info(memory_info)
+        collision_map = self.emulator.get_collision_map()
+        if collision_map:
+            logger.info(f"[Collision Map after action]\n{collision_map}")
+
+        content = [
+            {"type": "text", "text": action_summary},
+            {"type": "text", "text": f"\n{screenshot_intro}"},
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": screenshot_b64,
+                },
+            },
+        ]
+
+        if overlay_b64 is not None:
+            content.append({
+                "type": "text",
+                "text": (
+                    "\nWalkability overlay (red=blocked, green=walkable, "
+                    "yellow box=NPC/sprite, blue box=you):"
+                ),
+            })
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": overlay_b64,
+                },
+            })
+
+        content.append({
+            "type": "text",
+            "text": f"\nGame state information from memory after your action:\n{memory_info}",
+        })
+
+        return {
+            "type": "tool_result",
+            "tool_use_id": tool_use_id,
+            "content": content,
+        }
+
     def process_tool_call(self, tool_call):
         """Process a single tool call."""
         tool_name = tool_call.name
@@ -212,47 +286,19 @@ class SimpleAgent:
             buttons = tool_input["buttons"]
             wait = tool_input.get("wait", True)
             logger.info(f"[Buttons] Pressing: {buttons} (wait={wait})")
-            
-            result = self.emulator.press_buttons(buttons, wait)
-            
-            # Get a fresh screenshot after executing the buttons
-            screenshot = self.emulator.get_screenshot()
-            screenshot_b64 = get_screenshot_base64(screenshot, upscale=2)
-            
-            # Get game state from memory after the action
-            memory_info = self.emulator.get_state_from_memory()
-            
-            # Log the memory state after the tool call
-            logger.info(f"[Memory State after action]")
-            logger.info(memory_info)
-            
-            collision_map = self.emulator.get_collision_map()
-            if collision_map:
-                logger.info(f"[Collision Map after action]\n{collision_map}")
-            
-            # Return tool result as a dictionary
-            return {
-                "type": "tool_result",
-                "tool_use_id": tool_call.id,
-                "content": [
-                    {"type": "text", "text": f"Pressed buttons: {', '.join(buttons)}"},
-                    {"type": "text", "text": "\nHere is a screenshot of the screen after your button presses:"},
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/png",
-                            "data": screenshot_b64,
-                        },
-                    },
-                    {"type": "text", "text": f"\nGame state information from memory after your action:\n{memory_info}"},
-                ],
-            }
+
+            self.emulator.press_buttons(buttons, wait)
+
+            return self._build_emulator_tool_result(
+                tool_use_id=tool_call.id,
+                action_summary=f"Pressed buttons: {', '.join(buttons)}",
+                screenshot_intro="Here is a screenshot of the screen after your button presses:",
+            )
         elif tool_name == "navigate_to":
             row = tool_input["row"]
             col = tool_input["col"]
             logger.info(f"[Navigation] Navigating to: ({row}, {col})")
-            
+
             status, path = self.emulator.find_path(row, col)
             if path:
                 for direction in path:
@@ -260,40 +306,12 @@ class SimpleAgent:
                 result = f"Navigation successful: followed path with {len(path)} steps"
             else:
                 result = f"Navigation failed: {status}"
-            
-            # Get a fresh screenshot after executing the navigation
-            screenshot = self.emulator.get_screenshot()
-            screenshot_b64 = get_screenshot_base64(screenshot, upscale=2)
-            
-            # Get game state from memory after the action
-            memory_info = self.emulator.get_state_from_memory()
-            
-            # Log the memory state after the tool call
-            logger.info(f"[Memory State after action]")
-            logger.info(memory_info)
-            
-            collision_map = self.emulator.get_collision_map()
-            if collision_map:
-                logger.info(f"[Collision Map after action]\n{collision_map}")
-            
-            # Return tool result as a dictionary
-            return {
-                "type": "tool_result",
-                "tool_use_id": tool_call.id,
-                "content": [
-                    {"type": "text", "text": f"Navigation result: {result}"},
-                    {"type": "text", "text": "\nHere is a screenshot of the screen after navigation:"},
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/png",
-                            "data": screenshot_b64,
-                        },
-                    },
-                    {"type": "text", "text": f"\nGame state information from memory after your action:\n{memory_info}"},
-                ],
-            }
+
+            return self._build_emulator_tool_result(
+                tool_use_id=tool_call.id,
+                action_summary=f"Navigation result: {result}",
+                screenshot_intro="Here is a screenshot of the screen after navigation:",
+            )
         elif tool_name == "update_knowledge_base":
             operation = tool_input.get("operation")
             section_id = tool_input.get("section_id")

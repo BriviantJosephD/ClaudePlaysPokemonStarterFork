@@ -6,7 +6,7 @@ from collections import deque
 import heapq
 
 from agent.memory_reader import PokemonRedReader, StatusCondition
-from PIL import Image
+from PIL import Image, ImageDraw
 from pyboy import PyBoy
 
 logger = logging.getLogger(__name__)
@@ -230,6 +230,90 @@ class Emulator:
 
         # Join all lines with newlines
         return "\n".join(lines)
+
+    def get_collision_overlay_image(self):
+        """Render the collision/walkability data as a translucent overlay on the screenshot.
+
+        Produces an RGB PIL Image (320x288) that is the screenshot upscaled 2x
+        with the 9x10 walkability grid drawn over it:
+          - Walls (grid value == 0): translucent red fill
+          - Walkable: translucent green fill
+          - Sprite tiles: yellow outline
+          - Player tile (4, 4): blue outline + small directional arrow
+
+        Returns None on any failure so the caller can degrade gracefully
+        rather than break the tool result.
+        """
+        try:
+            screenshot = self.get_screenshot().convert("RGBA")
+            # Upscale 2x with NEAREST so pixel art stays crisp.
+            up_w, up_h = screenshot.width * 2, screenshot.height * 2
+            base = screenshot.resize((up_w, up_h), Image.NEAREST)
+
+            # Build the 9x10 walkability grid, sprites, and direction.
+            collision_map = self.pyboy.game_wrapper.game_area_collision()
+            grid = self._downsample_array(collision_map)
+            sprite_locations = set(self.get_sprites())
+            direction = self._get_direction(self.pyboy.game_wrapper.game_area())
+
+            # Tile dimensions on the upscaled canvas: 320/10 = 32 wide, 288/9 = 32 tall.
+            tile_w = up_w // 10
+            tile_h = up_h // 9
+
+            overlay = Image.new("RGBA", (up_w, up_h), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(overlay)
+
+            # Color constants
+            WALL_FILL = (220, 30, 30, 110)
+            WALK_FILL = (40, 200, 80, 70)
+            SPRITE_OUTLINE = (255, 200, 0, 255)
+            PLAYER_OUTLINE = (80, 160, 255, 255)
+            PLAYER_ARROW = (80, 160, 255, 255)
+
+            for row in range(9):
+                for col in range(10):
+                    x0 = col * tile_w
+                    y0 = row * tile_h
+                    x1 = x0 + tile_w - 1
+                    y1 = y0 + tile_h - 1
+
+                    if grid[row][col] == 0:
+                        draw.rectangle([x0, y0, x1, y1], fill=WALL_FILL)
+                    else:
+                        draw.rectangle([x0, y0, x1, y1], fill=WALK_FILL)
+
+                    # NPC / sprite outline (drawn on top of fill)
+                    if (col, row) in sprite_locations:
+                        draw.rectangle([x0, y0, x1, y1], outline=SPRITE_OUTLINE, width=3)
+
+            # Player marker at (row=4, col=4)
+            px0 = 4 * tile_w
+            py0 = 4 * tile_h
+            px1 = px0 + tile_w - 1
+            py1 = py0 + tile_h - 1
+            draw.rectangle([px0, py0, px1, py1], outline=PLAYER_OUTLINE, width=4)
+
+            # Directional arrow (small filled triangle inside the player tile)
+            cx = px0 + tile_w // 2
+            cy = py0 + tile_h // 2
+            arrow_size = tile_w // 4
+            triangle = None
+            if direction == "up":
+                triangle = [(cx, cy - arrow_size), (cx - arrow_size, cy + arrow_size), (cx + arrow_size, cy + arrow_size)]
+            elif direction == "down":
+                triangle = [(cx, cy + arrow_size), (cx - arrow_size, cy - arrow_size), (cx + arrow_size, cy - arrow_size)]
+            elif direction == "left":
+                triangle = [(cx - arrow_size, cy), (cx + arrow_size, cy - arrow_size), (cx + arrow_size, cy + arrow_size)]
+            elif direction == "right":
+                triangle = [(cx + arrow_size, cy), (cx - arrow_size, cy - arrow_size), (cx - arrow_size, cy + arrow_size)]
+            if triangle is not None:
+                draw.polygon(triangle, fill=PLAYER_ARROW)
+
+            composited = Image.alpha_composite(base, overlay)
+            return composited.convert("RGB")
+        except Exception as e:
+            logger.error(f"[Overlay] Failed to render collision overlay: {e}")
+            return None
 
     def get_valid_moves(self):
         """
