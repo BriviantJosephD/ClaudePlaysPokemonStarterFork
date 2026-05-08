@@ -3,6 +3,7 @@ import copy
 import io
 import logging
 import os
+from datetime import datetime
 
 from config import MAX_TOKENS, MODEL_NAME, TEMPERATURE, USE_NAVIGATOR, SAVE_STATE_INTERVAL, SAVE_STATE_DIR, THOUGHTS_LOG_PATH, THINKING_ENABLED, THINKING_BUDGET_TOKENS, KNOWLEDGE_BASE_PATH, CRITIC_ENABLED, CRITIC_MODEL, CRITIC_MAX_TOKENS
 
@@ -32,11 +33,10 @@ def get_screenshot_base64(screenshot, upscale=1):
 def append_thought(text: str) -> None:
     """Append a model text block to the rolling thoughts log."""
     try:
-        from datetime import datetime
-        with open(THOUGHTS_LOG_PATH, "a") as f:
+        with open(THOUGHTS_LOG_PATH, "a", encoding="utf-8") as f:
             f.write(f"[{datetime.now().isoformat(timespec='seconds')}]\n{text}\n\n")
-    except Exception as e:
-        logger.error(f"Failed to write thought: {e}")
+    except OSError as e:
+        logger.error(f"Failed to write thought to {THOUGHTS_LOG_PATH}: {e}")
 
 
 SYSTEM_PROMPT = """You are playing Pokemon Red. You can see the game screen and control the game by executing emulator commands.
@@ -107,16 +107,32 @@ AVAILABLE_TOOLS = [
 
 AVAILABLE_TOOLS.append({
     "name": "update_knowledge_base",
-    "description": "Add, edit, or delete a section in your long-term knowledge base. Use this to record durable facts, observations, or strategies you want to remember across summarizations.",
+    "description": (
+        "Add, edit, or delete a section in your long-term knowledge base. "
+        "Use this to record durable facts, observations, or strategies you "
+        "want to remember across summarizations. For 'add' and 'edit', the "
+        "'content' field is REQUIRED. For 'delete', 'content' is ignored."
+    ),
     "input_schema": {
         "type": "object",
         "properties": {
-            "operation": {"type": "string", "enum": ["add", "edit", "delete"]},
-            "section_id": {"type": "string", "description": "Identifier for the section (e.g. 'brock', 'starter_choice')"},
-            "content": {"type": "string", "description": "Content for add/edit. Ignored for delete."}
+            "operation": {
+                "type": "string",
+                "enum": ["add", "edit", "delete"],
+                "description": "The operation to perform.",
+            },
+            "section_id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Non-empty identifier for the section (e.g. 'brock', 'starter_choice').",
+            },
+            "content": {
+                "type": "string",
+                "description": "Content for add/edit. Required for those operations. Ignored for delete.",
+            },
         },
-        "required": ["operation", "section_id"]
-    }
+        "required": ["operation", "section_id"],
+    },
 })
 
 if USE_NAVIGATOR:
@@ -154,15 +170,22 @@ class SimpleAgent:
         self.emulator.initialize()  # Initialize the emulator
         os.makedirs(SAVE_STATE_DIR, exist_ok=True)
         self.knowledge_base = KnowledgeBase(KNOWLEDGE_BASE_PATH)
+        self.client = Anthropic()
+        # Share the Anthropic client between main agent and critic to avoid
+        # spinning up a second HTTP connection pool.
         self.critic = KnowledgeBaseCritic(
             model=CRITIC_MODEL,
             max_tokens=CRITIC_MAX_TOKENS,
             enabled=CRITIC_ENABLED,
+            client=self.client,
         )
-        self.client = Anthropic()
         self.running = True
         self.message_history = [{"role": "user", "content": "You may now begin playing."}]
         self.max_history = max_history
+        # Total step counter persists across multiple run() calls so the
+        # save-state interval triggers correctly even when the caller invokes
+        # run() in small batches (e.g. main.py default --steps 10).
+        self._total_steps = 0
         if load_state:
             logger.info(f"Loading saved state from {load_state}")
             self.emulator.load_state(load_state)
@@ -262,31 +285,41 @@ class SimpleAgent:
         elif tool_name == "update_knowledge_base":
             operation = tool_input.get("operation")
             section_id = tool_input.get("section_id")
-            content = tool_input.get("content", "")
+            content = tool_input.get("content")
             logger.info(
-                f"[KnowledgeBase] {operation} section '{section_id}'"
+                f"[KnowledgeBase] {operation} section {section_id!r}"
             )
-            try:
-                if operation == "add":
-                    self.knowledge_base.add(section_id, content)
-                    message = f"Knowledge base updated: added section '{section_id}'"
-                elif operation == "edit":
-                    self.knowledge_base.edit(section_id, content)
-                    message = f"Knowledge base updated: edited section '{section_id}'"
-                elif operation == "delete":
-                    self.knowledge_base.delete(section_id)
-                    message = f"Knowledge base updated: deleted section '{section_id}'"
-                else:
-                    message = (
-                        f"Error: unknown knowledge base operation '{operation}'. "
-                        "Must be one of: add, edit, delete."
-                    )
-            except KeyError:
+
+            # Validate inputs before touching the KB.
+            if operation not in ("add", "edit", "delete"):
                 message = (
-                    f"Error: section '{section_id}' not found in knowledge base."
+                    f"Error: unknown knowledge base operation {operation!r}. "
+                    "Must be one of: add, edit, delete."
                 )
-            except Exception as e:
-                message = f"Error updating knowledge base: {e}"
+            elif not isinstance(section_id, str) or not section_id.strip():
+                message = "Error: section_id must be a non-empty string."
+            elif operation in ("add", "edit") and not isinstance(content, str):
+                message = (
+                    f"Error: '{operation}' requires a 'content' string. "
+                    "Pass the section text in the 'content' field."
+                )
+            else:
+                try:
+                    if operation == "add":
+                        self.knowledge_base.add(section_id, content)
+                        message = f"Knowledge base updated: added section '{section_id}'"
+                    elif operation == "edit":
+                        self.knowledge_base.edit(section_id, content)
+                        message = f"Knowledge base updated: edited section '{section_id}'"
+                    else:  # delete
+                        self.knowledge_base.delete(section_id)
+                        message = f"Knowledge base updated: deleted section '{section_id}'"
+                except KeyError:
+                    message = (
+                        f"Error: section '{section_id}' not found in knowledge base."
+                    )
+                except (ValueError, OSError) as e:
+                    message = f"Error updating knowledge base: {e}"
 
             return {
                 "type": "tool_result",
@@ -366,9 +399,11 @@ class SimpleAgent:
 
                 # Process tool calls
                 if tool_calls:
-                    # Add assistant message to history
-                    # Preserve thinking blocks in original order before tool_use blocks
-                    # so subsequent tool_result turns are accepted by the API.
+                    # Add assistant message to history.
+                    # Preserve thinking AND redacted_thinking blocks in their
+                    # original order. The Anthropic API rejects subsequent
+                    # tool_result turns if these blocks are missing or reordered
+                    # when extended thinking is enabled.
                     assistant_content = []
                     for block in response.content:
                         if block.type == "thinking":
@@ -377,11 +412,21 @@ class SimpleAgent:
                                 "thinking": block.thinking,
                                 "signature": block.signature,
                             })
+                        elif block.type == "redacted_thinking":
+                            # Safety-redacted thinking: preserve the opaque
+                            # data payload so the API can verify continuity.
+                            assistant_content.append({
+                                "type": "redacted_thinking",
+                                "data": block.data,
+                            })
                         elif block.type == "text":
                             assistant_content.append({"type": "text", "text": block.text})
                         elif block.type == "tool_use":
-                            assistant_content.append({"type": "tool_use", **dict(block)})
-                    
+                            # Use model_dump() for forward compatibility with
+                            # newer Pydantic / Anthropic SDK versions.
+                            dumped = block.model_dump() if hasattr(block, "model_dump") else dict(block)
+                            assistant_content.append(dumped)
+
                     self.message_history.append(
                         {"role": "assistant", "content": assistant_content}
                     )
@@ -402,15 +447,20 @@ class SimpleAgent:
                         self.summarize_history()
 
                 steps_completed += 1
-                logger.info(f"Completed step {steps_completed}/{num_steps}")
+                self._total_steps += 1
+                logger.info(f"Completed step {steps_completed}/{num_steps} (total {self._total_steps})")
 
-                if steps_completed % SAVE_STATE_INTERVAL == 0:
-                    save_path = os.path.join(SAVE_STATE_DIR, f"autosave_step_{steps_completed}.state")
+                # Use the persistent total counter so the save interval still
+                # triggers when run() is called in small batches.
+                if self._total_steps % SAVE_STATE_INTERVAL == 0:
+                    save_path = os.path.join(
+                        SAVE_STATE_DIR, f"autosave_step_{self._total_steps}.state"
+                    )
                     try:
                         self.emulator.save_state(save_path)
                         logger.info(f"[Save] Wrote state to {save_path}")
-                    except Exception as e:
-                        logger.error(f"[Save] Failed to write state: {e}")
+                    except OSError as e:
+                        logger.error(f"[Save] Failed to write state to {save_path}: {e}")
 
             except KeyboardInterrupt:
                 logger.info("Received keyboard interrupt, stopping")
@@ -530,8 +580,21 @@ class SimpleAgent:
         logger.info(f"[Agent] Message history condensed into summary.")
         
     def stop(self):
-        """Stop the agent."""
+        """Stop the agent.
+
+        Writes a final save state if any progress was made, then shuts down
+        the emulator. A failure to save is logged but does not block shutdown.
+        """
         self.running = False
+        if self._total_steps > 0:
+            final_path = os.path.join(
+                SAVE_STATE_DIR, f"autosave_step_{self._total_steps}_final.state"
+            )
+            try:
+                self.emulator.save_state(final_path)
+                logger.info(f"[Save] Wrote final state to {final_path}")
+            except OSError as e:
+                logger.error(f"[Save] Failed to write final state to {final_path}: {e}")
         self.emulator.stop()
 
 

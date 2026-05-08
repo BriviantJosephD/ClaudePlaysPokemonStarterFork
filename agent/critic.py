@@ -36,8 +36,16 @@ Rules:
 class KnowledgeBaseCritic:
     """Calls a small model to review the knowledge base after summarization."""
 
-    def __init__(self, model: str, max_tokens: int = 500, enabled: bool = True):
-        self.client = Anthropic()
+    def __init__(
+        self,
+        model: str,
+        max_tokens: int = 500,
+        enabled: bool = True,
+        client=None,
+    ):
+        # Reuse a shared Anthropic client when provided to avoid duplicate
+        # connection pools. Falls back to constructing one if not supplied.
+        self.client = client if client is not None else Anthropic()
         self.model = model
         self.max_tokens = max_tokens
         self.enabled = enabled
