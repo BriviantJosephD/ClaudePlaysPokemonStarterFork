@@ -21,3 +21,8 @@ KNOWLEDGE_BASE_PATH = "knowledge_base.json"
 CRITIC_ENABLED = True
 CRITIC_MODEL = "claude-haiku-4-5"   # change to a dated snapshot if needed
 CRITIC_MAX_TOKENS = 500
+
+# Walkability image overlay. Doubles per-turn image bandwidth (a second
+# 320x288 PNG alongside the plain screenshot). Set to False if running long
+# sessions where token cost matters more than navigator-style grounding.
+OVERLAY_ENABLED = True

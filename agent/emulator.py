@@ -246,6 +246,17 @@ class Emulator:
         """
         try:
             screenshot = self.get_screenshot().convert("RGBA")
+            # The grid math below assumes the native Game Boy 160x144 frame so
+            # that 2x upscale yields 320x288 with whole-number 32x32 tiles. If
+            # PyBoy ever changes screen size, refuse to render rather than draw
+            # tiles at fractional offsets.
+            if screenshot.width != 160 or screenshot.height != 144:
+                logger.warning(
+                    "[Overlay] Unexpected screenshot size %sx%s; skipping overlay",
+                    screenshot.width, screenshot.height,
+                )
+                return None
+
             # Upscale 2x with NEAREST so pixel art stays crisp.
             up_w, up_h = screenshot.width * 2, screenshot.height * 2
             base = screenshot.resize((up_w, up_h), Image.NEAREST)
@@ -311,8 +322,11 @@ class Emulator:
 
             composited = Image.alpha_composite(base, overlay)
             return composited.convert("RGB")
-        except Exception as e:
-            logger.error(f"[Overlay] Failed to render collision overlay: {e}")
+        except Exception:
+            # logger.exception captures the stack trace so coordinate / index
+            # bugs in the overlay are visible in run logs rather than silently
+            # disabling the feature.
+            logger.exception("[Overlay] Failed to render collision overlay")
             return None
 
     def get_valid_moves(self):
