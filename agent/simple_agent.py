@@ -4,8 +4,9 @@ import io
 import logging
 import os
 
-from config import MAX_TOKENS, MODEL_NAME, TEMPERATURE, USE_NAVIGATOR, SAVE_STATE_INTERVAL, SAVE_STATE_DIR, THOUGHTS_LOG_PATH, THINKING_ENABLED, THINKING_BUDGET_TOKENS, KNOWLEDGE_BASE_PATH
+from config import MAX_TOKENS, MODEL_NAME, TEMPERATURE, USE_NAVIGATOR, SAVE_STATE_INTERVAL, SAVE_STATE_DIR, THOUGHTS_LOG_PATH, THINKING_ENABLED, THINKING_BUDGET_TOKENS, KNOWLEDGE_BASE_PATH, CRITIC_ENABLED, CRITIC_MODEL, CRITIC_MAX_TOKENS
 
+from agent.critic import KnowledgeBaseCritic
 from agent.emulator import Emulator
 from agent.knowledge_base import KnowledgeBase
 from anthropic import Anthropic
@@ -132,6 +133,11 @@ class SimpleAgent:
         self.emulator.initialize()  # Initialize the emulator
         os.makedirs(SAVE_STATE_DIR, exist_ok=True)
         self.knowledge_base = KnowledgeBase(KNOWLEDGE_BASE_PATH)
+        self.critic = KnowledgeBaseCritic(
+            model=CRITIC_MODEL,
+            max_tokens=CRITIC_MAX_TOKENS,
+            enabled=CRITIC_ENABLED,
+        )
         self.client = Anthropic()
         self.running = True
         self.message_history = [{"role": "user", "content": "You may now begin playing."}]
@@ -450,39 +456,56 @@ class SimpleAgent:
         
         # Extract the summary text
         summary_text = " ".join([block.text for block in response.content if block.type == "text"])
-        
+
         logger.info(f"[Agent] Game Progress Summary:")
         logger.info(f"{summary_text}")
-        
-        # Replace message history with just the summary
-        self.message_history = [
+
+        # Run the knowledge-base critic. Returns None if disabled, KB is fine,
+        # or the API call fails. Any feedback gets appended to the next turn's
+        # user message so the main agent self-corrects its KB hygiene.
+        critique = self.critic.review(
+            knowledge_base_xml=self.knowledge_base.render(),
+            summary_text=summary_text,
+        )
+
+        # Build the rebuilt history's content blocks.
+        new_content = [
             {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": f"CONVERSATION HISTORY SUMMARY (representing {self.max_history} previous messages): {summary_text}"
-                    },
-                    {
-                        "type": "text",
-                        "text": "\n\nCurrent game screenshot for reference:"
-                    },
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/png",
-                            "data": screenshot_b64,
-                        },
-                    },
-                    {
-                        "type": "text",
-                        "text": "You were just asked to summarize your playthrough so far, which is the summary you see above. You may now continue playing by selecting your next action."
-                    },
-                ]
-            }
+                "type": "text",
+                "text": f"CONVERSATION HISTORY SUMMARY (representing {self.max_history} previous messages): {summary_text}"
+            },
+            {
+                "type": "text",
+                "text": "\n\nCurrent game screenshot for reference:"
+            },
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": screenshot_b64,
+                },
+            },
+            {
+                "type": "text",
+                "text": "You were just asked to summarize your playthrough so far, which is the summary you see above. You may now continue playing by selecting your next action."
+            },
         ]
-        
+
+        if critique:
+            new_content.append({
+                "type": "text",
+                "text": (
+                    "\n\nCRITIC REVIEW OF YOUR KNOWLEDGE BASE "
+                    "(advisory — review these suggestions and use update_knowledge_base "
+                    "to act on the ones you agree with):\n"
+                    f"{critique}"
+                ),
+            })
+
+        # Replace message history with just the summary (+ optional critique)
+        self.message_history = [{"role": "user", "content": new_content}]
+
         logger.info(f"[Agent] Message history condensed into summary.")
         
     def stop(self):
