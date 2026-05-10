@@ -14,7 +14,7 @@ Architectural parity with the production Twitch diagram is **complete** (knowled
 
 - [x] **`.gitignore` for runtime artifacts.**  Added `knowledge_base.json`, `saves/`, `thoughts.log`, `*.tmp`, `*.bak`, `.claude/worktrees/`, `.claude/settings.local.json`, `.venv/`, `.pytest_cache/`, `.ruff_cache/`, `.mypy_cache/`.  ROM (`*.gb`) and `.env` were already covered.
 
-- [x] **`README.md`.**  Full rewrite landed.  Setup, real-session pattern (bounded `--steps 2000` + resume from latest save), OBS overlay setup with explicit cwd, every config knob with cost notes, defensible cost estimate (~$25-120/hr at default config with worked math), file map, tests, model-selection guidance with `YYYYMMDD` placeholder pattern, ROM legal/practical note.
+- [x] **`README.md`.**  Full rewrite landed.  Setup, real-session pattern (bounded `--steps 2000` + resume from latest save), OBS overlay setup with explicit cwd, every config knob with cost notes, defensible cost estimate with worked math (currently ~$16-30/hr at default config, no caching), file map, tests, model-selection guidance with `YYYYMMDD` placeholder pattern, ROM legal/practical note.
 
 ---
 
@@ -61,6 +61,8 @@ Architectural parity with the production Twitch diagram is **complete** (knowled
 - [x] Situational helpful reminders appended to use_emulator results (`agent/reminders.py`)
 - [x] Enriched system prompt with tool tips and weakness reminders
 - [x] Code review fixes (XML escaping, atomic writes, redacted_thinking, dialog "None" sentinel)
-- [x] Unit tests for the reminders module (13/13 passing)
+- [x] Unit tests — `test_reminders.py` (15 cases) + `test_memory_reader.py` (11 cases) = 26/26 passing
 - [x] **Tier 1 ship-and-forget readiness** — model alias bump, free model verification snippet, `.gitignore` for runtime artifacts, full README rewrite with bounded-session pattern, defensible cost math, OBS setup, ROM legality note, dated-snapshot placeholder pattern, `TEMPERATURE`/`THINKING` import-time assert
 - [x] **Tier 2 quality polish** — Makefile (test/run/serve/verify/clean), startup `[Cost]` log with critic-amortized pricing, `thoughts.log` rotation via archive-to-`.prev`, `scripts/serve_overlay.sh`, fainted-Pokemon reminder, `CRITIC_INTERVAL` config knob
+- [x] **Codex review pass** — first Claude turn now seeds a real observation (screenshot + overlay + RAM + reminders) so the model doesn't act blind; `agent/memory_reader.py` enum constructions hardened via `_safe_enum` + `_UnknownEnumMember` stand-in so unknown RAM bytes degrade gracefully instead of crashing the run; README setup uses explicit `git checkout -b ClaudeUpdates origin/ClaudeUpdates` (any-Git compatible); pinned codex-confirmed dated snapshots (`claude-sonnet-4-5-20250929`, `claude-haiku-4-5-20251001`) with ~12-month deprecation window
+- [x] **Test-suite dedup** — `agent/memory_reader.py` gains `from __future__ import annotations` (PEP 563) so the pre-existing PEP 604 union syntax loads on Python 3.9+; `test_memory_reader.py` now imports the real `_safe_enum` / `_UnknownEnumMember` / `_safe_enum_reset` directly instead of carrying a shadow copy that could drift; added cross-checks against the real `PokemonType` and `Move` enums
