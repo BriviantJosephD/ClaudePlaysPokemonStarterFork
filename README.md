@@ -23,13 +23,14 @@ Open items tracked in [`todo.md`](todo.md).
 
 ## Setup
 
-1. Clone and check out the working branch.  The default branch after `clone` may not be the branch where the features live — confirm with `git branch --show-current`:
+1. Clone and check out the working branch.  Create an explicit local tracking branch off the remote — this form works on any Git version, unlike a bare `git checkout ClaudeUpdates` which depends on the DWIM behavior added in Git 2.23+:
    ```bash
    git clone git@github.com:BriviantJosephD/ClaudePlaysPokemonStarterFork.git
    cd ClaudePlaysPokemonStarterFork
-   git checkout ClaudeUpdates       # or main, once ClaudeUpdates is merged
-   git branch --show-current        # should print ClaudeUpdates (or main)
+   git checkout -b ClaudeUpdates origin/ClaudeUpdates   # or `git switch ClaudeUpdates` on Git 2.23+
+   git branch --show-current                            # should print ClaudeUpdates
    ```
+   Once `ClaudeUpdates` is merged into `main` upstream, you can skip this step and stay on the default branch.
 
 2. Install Python deps:
    ```bash
@@ -215,7 +216,7 @@ MODEL_NAME = "claude-sonnet-4-5-20250929"   # Sonnet 4.5, verified 2026-05-08
 CRITIC_MODEL = "claude-haiku-4-5-20251001"  # Haiku 4.5,  verified 2026-05-08
 ```
 
-If those snapshots have since been retired, run `make verify-models` (or the `models.retrieve` snippet in [Setup step 5](#setup)) to get the current alias resolution, then paste the printed id into `config.py`.  Always pull current values from [docs.claude.com/en/docs/about-claude/models](https://docs.claude.com/en/docs/about-claude/models).
+If those snapshots have since been retired, run `make verify-models` (or the `models.retrieve` snippet in [Setup step 5](#setup)) to get the current alias resolution, then paste the printed id into `config.py`.  You can also paste a pinned dated string into the same snippet to confirm it still resolves against your API key before relying on it for a long run.  Anthropic typically deprecates dated snapshots ~12 months after release, so re-verify if the snapshot date above is more than a year stale.  Always pull current values from [docs.claude.com/en/docs/about-claude/models](https://docs.claude.com/en/docs/about-claude/models).
 
 ---
 

@@ -3,6 +3,7 @@ import copy
 import io
 import logging
 import os
+import sys
 from datetime import datetime
 
 from config import MAX_TOKENS, MODEL_NAME, TEMPERATURE, USE_NAVIGATOR, SAVE_STATE_INTERVAL, SAVE_STATE_DIR, THOUGHTS_LOG_PATH, THOUGHTS_LOG_TRUNCATE_ON_START, THINKING_ENABLED, THINKING_BUDGET_TOKENS, KNOWLEDGE_BASE_PATH, CRITIC_ENABLED, CRITIC_MODEL, CRITIC_MAX_TOKENS, CRITIC_INTERVAL, OVERLAY_ENABLED, MODEL_PRICING_PER_MTOK
@@ -10,6 +11,7 @@ from config import MAX_TOKENS, MODEL_NAME, TEMPERATURE, USE_NAVIGATOR, SAVE_STAT
 from agent.critic import KnowledgeBaseCritic
 from agent.emulator import Emulator
 from agent.knowledge_base import KnowledgeBase
+from agent.memory_reader import _safe_enum_reset
 from agent.reminders import compute_helpful_reminders
 from anthropic import Anthropic
 
@@ -169,6 +171,12 @@ class SimpleAgent:
             sound: Whether to enable sound
             max_history: Maximum number of messages in history before summarization
         """
+        # Reset the memory_reader unknown-enum warning dedup so a fresh
+        # SimpleAgent re-surfaces RAM corruption it has seen in a previous
+        # instance within the same process (matters for tests, batch runs,
+        # and long-stream resumes).
+        _safe_enum_reset()
+
         self.emulator = Emulator(rom_path, headless, sound)
         self.emulator.initialize()  # Initialize the emulator
         os.makedirs(SAVE_STATE_DIR, exist_ok=True)
@@ -229,14 +237,23 @@ class SimpleAgent:
 
         # Seed the first user turn with a real observation so the model's
         # first response is grounded in screenshot + RAM state instead of
-        # acting blind. Done AFTER load_state so the observation reflects the
-        # loaded state, not the pre-load state. If observation capture fails
-        # for any reason we fall back to the bare framing string rather than
-        # crashing the agent before it ever ran.
+        # acting blind. Done AFTER load_state so the observation reflects
+        # the loaded state, not the pre-load state.
+        #
+        # The catch is intentionally narrow — emulator I/O and PIL/numpy
+        # failures are the realistic failure modes here. AttributeError /
+        # TypeError indicate a bug in the helper itself and SHOULD propagate
+        # so the operator notices instead of silently running blind. Print
+        # to stderr in addition to the log so console-watchers also see it.
         try:
             self.message_history = [self._build_initial_observation_message()]
-        except Exception as e:  # noqa: BLE001 — defensive, must not abort init
+        except (OSError, ValueError, RuntimeError) as e:
             logger.exception(f"[Init] Failed to build first observation: {e}")
+            print(
+                "WARNING: first-turn observation failed; agent starting blind. "
+                "Check the run log for details.",
+                file=sys.stderr,
+            )
             self.message_history = [
                 {"role": "user", "content": "You may now begin playing."}
             ]
@@ -318,6 +335,23 @@ class SimpleAgent:
             "type": "text",
             "text": f"\nGame state information from memory:\n{memory_info}",
         })
+
+        # First-turn reminders too — if the loaded state has low HP, an
+        # active dialog, or a narrow passage, the model benefits from the
+        # nudge on turn 1 just as much as later turns. No collision map is
+        # included here (the ASCII map is a log-only signal; the image
+        # overlay carries the model-visible walkability info), and there's
+        # no action_summary yet — pass empty string.
+        try:
+            collision_map = self.emulator.get_collision_map()
+        except Exception:  # noqa: BLE001 — never block first-turn over a log helper
+            collision_map = None
+        reminders = compute_helpful_reminders(memory_info, collision_map, "")
+        if reminders:
+            content.append({
+                "type": "text",
+                "text": "\nHelpful reminders:\n" + "\n".join(f"- {r}" for r in reminders),
+            })
 
         return {"role": "user", "content": content}
 

@@ -11,8 +11,15 @@ class _UnknownEnumMember:
 
     Has the same ``.name`` and ``.value`` interface as a real enum member so
     callers using ``member.name.replace("_", " ")`` keep working. Equality is
-    by name so two unknowns with the same underlying byte compare equal,
-    which is what the ``type1 == type2`` collapse logic needs.
+    by ``(enum_cls.__name__, value)`` so two unknowns with the same RAM byte
+    AND the same wrapped enum class compare equal — which is what the
+    ``type1 == type2`` collapse logic in ``read_party_pokemon`` needs.
+
+    **IMPORTANT for callers:** this is a duck-typed stand-in, NOT a subclass
+    of the wrapped enum. Do NOT use ``isinstance(x, PokemonType)`` (or
+    ``Move``, ``MapLocation``, ``Tileset``) anywhere downstream — such a
+    check returns False on the stand-in and the surrounding branch silently
+    skips it. As of writing the codebase has none; keep it that way.
 
     Why not let the ValueError propagate? RAM can contain garbage during
     boot sequences, screen transitions, or with weirder ROM revisions. A
@@ -21,19 +28,26 @@ class _UnknownEnumMember:
     in the run log instead.
     """
 
-    __slots__ = ("name", "value")
+    __slots__ = ("_enum_name", "name", "value")
 
     def __init__(self, enum_cls, value):
-        self.name = f"UNKNOWN_{enum_cls.__name__.upper()}_{value:#04X}"
+        self._enum_name = enum_cls.__name__
+        # Lowercase ``0x`` prefix and fixed 2-hex-digit width so names line
+        # up across values: UNKNOWN_POKEMONTYPE_0x05 vs ..._0xFF.
+        self.name = f"UNKNOWN_{self._enum_name.upper()}_0x{value:02X}"
         self.value = value
 
     def __eq__(self, other):
+        # Two unknowns are equal only when both the wrapped enum class AND
+        # the underlying byte match. Return NotImplemented for foreign types
+        # so Python's comparison protocol falls back to the other side's
+        # __eq__ (which will correctly return False for real enum members).
         if isinstance(other, _UnknownEnumMember):
-            return self.name == other.name
-        return False
+            return self._enum_name == other._enum_name and self.value == other.value
+        return NotImplemented
 
     def __hash__(self):
-        return hash(self.name)
+        return hash((self._enum_name, self.value))
 
     def __repr__(self):
         return f"<_UnknownEnumMember {self.name}>"
@@ -42,8 +56,11 @@ class _UnknownEnumMember:
 def _safe_enum(enum_cls, value):
     """Return ``enum_cls(value)`` or a labeled UNKNOWN stand-in on ValueError.
 
-    Logs a warning the first time each (enum, value) pair is seen so the
-    operator can investigate without flooding the log on every turn.
+    Logs a warning the first time each (enum, value) pair is seen this
+    process so the operator can investigate without flooding the log every
+    turn. The dedup set is process-global; call ``_safe_enum_reset()``
+    between independent test runs or to re-surface a recurring corruption
+    after the emulator stabilizes.
     """
     try:
         return enum_cls(value)
@@ -51,7 +68,7 @@ def _safe_enum(enum_cls, value):
         key = (enum_cls.__name__, value)
         if key not in _safe_enum._seen:
             logger.warning(
-                "[MemoryReader] Unknown %s value %#04x — falling back to UNKNOWN",
+                "[MemoryReader] Unknown %s value 0x%02X — falling back to UNKNOWN",
                 enum_cls.__name__, value,
             )
             _safe_enum._seen.add(key)
@@ -59,6 +76,16 @@ def _safe_enum(enum_cls, value):
 
 
 _safe_enum._seen = set()
+
+
+def _safe_enum_reset():
+    """Clear the ``_safe_enum`` dedup set.
+
+    Useful for test isolation (so two cases don't share state) and for a
+    long stream where the operator wants to re-surface a recurring
+    corruption after the emulator stabilizes.
+    """
+    _safe_enum._seen.clear()
 
 
 class StatusCondition(IntFlag):

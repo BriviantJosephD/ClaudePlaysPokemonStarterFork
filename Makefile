@@ -3,7 +3,7 @@
 help:
 	@echo "Targets:"
 	@echo "  make install         pip install -r requirements.txt"
-	@echo "  make test            run unit tests (test_reminders.py)"
+	@echo "  make test            run unit tests (test_reminders.py + test_memory_reader.py)"
 	@echo "  make smoke           5-step headless smoke run (requires pokemon.gb)"
 	@echo "  make run             bounded play session (--steps 2000 --display)"
 	@echo "  make serve-overlay   start static HTTP server for thoughts.html"
@@ -15,6 +15,7 @@ install:
 
 test:
 	python3 test_reminders.py
+	python3 test_memory_reader.py
 
 smoke:
 	python3 main.py --steps 5
