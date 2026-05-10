@@ -1,3 +1,10 @@
+# PEP 563: defer annotation evaluation. The dataclass below uses PEP 604
+# union syntax (e.g. ``PokemonType | None``) which is otherwise a runtime
+# TypeError on Python 3.9. Deferring keeps the source readable without
+# pinning the project to 3.10+, and lets the test suite import the helpers
+# from this module directly instead of re-defining them.
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
 from enum import IntEnum, IntFlag

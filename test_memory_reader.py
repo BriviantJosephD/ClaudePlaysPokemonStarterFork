@@ -1,61 +1,33 @@
-"""Unit tests for memory_reader helpers (currently: _safe_enum + UNKNOWN stand-in).
+"""Unit tests for ``agent.memory_reader`` helpers (currently: ``_safe_enum``
+and the ``_UnknownEnumMember`` stand-in).
 
-Run with: python3 test_memory_reader.py
+Run with: ``python3 test_memory_reader.py``
 
-Uses a lightweight stub for ``_UnknownEnumMember`` and ``_safe_enum`` to avoid
-importing the full module (which uses Python 3.10+ ``X | None`` syntax and
-pulls in PyBoy at import time). The helper logic is self-contained and small
-enough that re-defining it here is cleaner than vendoring extra deps.
+Imports the real helpers from ``agent.memory_reader`` so the tests pin down
+production behavior — no duplicated copy that can drift. ``memory_reader``
+is stdlib-only at import time (no PyBoy / numpy / PIL), so this stays cheap.
 """
 
-import logging
+import os
 import sys
 from enum import Enum
 
+REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, REPO_ROOT)
 
-# --- Re-create the helpers under test in-process ---
-# This must stay byte-identical to agent/memory_reader.py. If you change one,
-# change the other. The whole point of these tests is to lock in the
-# interface — if the helpers drift, this duplication will surface that.
-
-logger = logging.getLogger("test_memory_reader")
-
-
-class _UnknownEnumMember:
-    __slots__ = ("_enum_name", "name", "value")
-
-    def __init__(self, enum_cls, value):
-        self._enum_name = enum_cls.__name__
-        self.name = f"UNKNOWN_{self._enum_name.upper()}_0x{value:02X}"
-        self.value = value
-
-    def __eq__(self, other):
-        if isinstance(other, _UnknownEnumMember):
-            return self._enum_name == other._enum_name and self.value == other.value
-        return NotImplemented
-
-    def __hash__(self):
-        return hash((self._enum_name, self.value))
+from agent.memory_reader import (  # noqa: E402 — sys.path mutation above
+    _safe_enum,
+    _safe_enum_reset,
+    _UnknownEnumMember,
+    Move,
+    PokemonType,
+)
 
 
-def _safe_enum(enum_cls, value):
-    try:
-        return enum_cls(value)
-    except ValueError:
-        key = (enum_cls.__name__, value)
-        if key not in _safe_enum._seen:
-            _safe_enum._seen.add(key)
-        return _UnknownEnumMember(enum_cls, value)
-
-
-_safe_enum._seen = set()
-
-
-def _safe_enum_reset():
-    _safe_enum._seen.clear()
-
-
-# --- Fixtures ---
+# --- Fixtures: lightweight private enums avoid coupling test assertions to
+# specific real Pokemon values that might be renumbered upstream. Two of the
+# tests below also exercise the real Move and PokemonType enums to confirm
+# the production stand-in works against them, not just the fakes.
 
 class _FakeType(Enum):
     NORMAL = 0
@@ -117,17 +89,30 @@ def test_eq_with_real_enum_returns_false():
     assert not (_FakeType.NORMAL == u), "real enum member should not equal unknown"
 
 
+def test_real_pokemon_type_unknown_byte():
+    # Exercise the production PokemonType to confirm the helper works on it,
+    # not just on the lightweight fakes. 0xFE is well outside the type table.
+    u = _safe_enum(PokemonType, 0xFE)
+    assert isinstance(u, _UnknownEnumMember)
+    assert u.name == "UNKNOWN_POKEMONTYPE_0xFE"
+
+
+def test_real_move_unknown_byte():
+    u = _safe_enum(Move, 0xFE)
+    assert isinstance(u, _UnknownEnumMember)
+    assert "UNKNOWN_MOVE" in u.name
+
+
 def test_dedup_tracks_seen_pairs():
     _safe_enum_reset()
-    seen_before = len(_safe_enum._seen)
     _safe_enum(_FakeType, 0xFE)
     _safe_enum(_FakeType, 0xFE)
     _safe_enum(_FakeType, 0xFE)
-    assert len(_safe_enum._seen) == seen_before + 1, "same pair should be deduped"
+    assert len(_safe_enum._seen) == 1, "same pair should be deduped"
     _safe_enum(_FakeType, 0xFD)
-    assert len(_safe_enum._seen) == seen_before + 2, "new value should be tracked"
+    assert len(_safe_enum._seen) == 2, "new value should be tracked"
     _safe_enum(_FakeMove, 0xFE)
-    assert len(_safe_enum._seen) == seen_before + 3, "new class should be tracked"
+    assert len(_safe_enum._seen) == 3, "new class should be tracked"
 
 
 def test_reset_clears_seen():
@@ -146,6 +131,8 @@ if __name__ == "__main__":
         test_unknowns_with_different_values_are_not_equal,
         test_unknowns_with_different_classes_are_not_equal,
         test_eq_with_real_enum_returns_false,
+        test_real_pokemon_type_unknown_byte,
+        test_real_move_unknown_byte,
         test_dedup_tracks_seen_pairs,
         test_reset_clears_seen,
     ]
