@@ -183,7 +183,10 @@ class SimpleAgent:
             client=self.client,
         )
         self.running = True
-        self.message_history = [{"role": "user", "content": "You may now begin playing."}]
+        # Seeded below, after load_state and other setup, with the first
+        # observation (screenshot + overlay + RAM state). Initialized empty
+        # here so the helper can run with a valid object on self.
+        self.message_history = []
         self.max_history = max_history
         # Total step counter persists across multiple run() calls so the
         # save-state interval triggers correctly even when the caller invokes
@@ -224,6 +227,20 @@ class SimpleAgent:
             logger.info(f"Loading saved state from {load_state}")
             self.emulator.load_state(load_state)
 
+        # Seed the first user turn with a real observation so the model's
+        # first response is grounded in screenshot + RAM state instead of
+        # acting blind. Done AFTER load_state so the observation reflects the
+        # loaded state, not the pre-load state. If observation capture fails
+        # for any reason we fall back to the bare framing string rather than
+        # crashing the agent before it ever ran.
+        try:
+            self.message_history = [self._build_initial_observation_message()]
+        except Exception as e:  # noqa: BLE001 — defensive, must not abort init
+            logger.exception(f"[Init] Failed to build first observation: {e}")
+            self.message_history = [
+                {"role": "user", "content": "You may now begin playing."}
+            ]
+
         # One-shot startup log so a viewer of the run log can see exactly
         # which model + features the agent is configured with.
         logger.info(
@@ -236,6 +253,73 @@ class SimpleAgent:
             OVERLAY_ENABLED, SAVE_STATE_INTERVAL, max_history,
         )
         self._log_cost_estimate()
+
+    def _build_initial_observation_message(self):
+        """Build the first user message with a real observation.
+
+        Captures screenshot + walkability overlay + RAM state and packages
+        them as a plain user message (NOT a tool_result, since there's no
+        prior tool_use to attach to). The model's very first turn then has
+        the same grounding signals as every subsequent turn — without this
+        the first decision would be made blind.
+        """
+        screenshot = self.emulator.get_screenshot()
+        screenshot_b64 = get_screenshot_base64(screenshot, upscale=2)
+
+        overlay_img = (
+            self.emulator.get_collision_overlay_image() if OVERLAY_ENABLED else None
+        )
+        overlay_b64 = (
+            get_screenshot_base64(overlay_img, upscale=1) if overlay_img is not None else None
+        )
+
+        memory_info = self.emulator.get_state_from_memory()
+        logger.info("[Memory State at session start]")
+        logger.info(memory_info)
+
+        content = [
+            {
+                "type": "text",
+                "text": (
+                    "Initial observation. You may now begin playing. "
+                    "Your first action should be informed by the screenshot, "
+                    "overlay, and memory state below — do not act blind."
+                ),
+            },
+            {"type": "text", "text": "\nCurrent screen:"},
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": screenshot_b64,
+                },
+            },
+        ]
+
+        if overlay_b64 is not None:
+            content.append({
+                "type": "text",
+                "text": (
+                    "\nWalkability overlay (red=blocked, green=walkable, "
+                    "yellow box=NPC/sprite, blue box=you):"
+                ),
+            })
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": overlay_b64,
+                },
+            })
+
+        content.append({
+            "type": "text",
+            "text": f"\nGame state information from memory:\n{memory_info}",
+        })
+
+        return {"role": "user", "content": content}
 
     def _log_cost_estimate(self):
         """Print an order-of-magnitude $/hour estimate for the configured run.

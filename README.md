@@ -23,10 +23,12 @@ Open items tracked in [`todo.md`](todo.md).
 
 ## Setup
 
-1. Clone:
+1. Clone and check out the working branch.  The default branch after `clone` may not be the branch where the features live — confirm with `git branch --show-current`:
    ```bash
    git clone git@github.com:BriviantJosephD/ClaudePlaysPokemonStarterFork.git
    cd ClaudePlaysPokemonStarterFork
+   git checkout ClaudeUpdates       # or main, once ClaudeUpdates is merged
+   git branch --show-current        # should print ClaudeUpdates (or main)
    ```
 
 2. Install Python deps:
@@ -206,14 +208,14 @@ python3 test_reminders.py
 
 ## Model selection
 
-This repo defaults to Anthropic aliases (`claude-sonnet-4-5`, `claude-haiku-4-5`).  Aliases stay valid for the model's full support window — the right choice for ship-and-forget.  If you need byte-for-byte determinism (e.g. for benchmarking), swap to a dated snapshot in `config.py` using the **placeholder pattern below** — replace `YYYYMMDD` with the real snapshot id printed by the verification snippet in [Setup step 5](#setup):
+This repo defaults to Anthropic aliases (`claude-sonnet-4-5`, `claude-haiku-4-5`).  Aliases stay valid for the model's full support window — the right choice for ship-and-forget.  If you need byte-for-byte determinism (e.g. for benchmarking), swap to a dated snapshot in `config.py`.  The following snapshots are listed in Anthropic's official model docs as of the README's verified date and are known-good fallbacks if the aliases ever fail to resolve:
 
 ```python
-MODEL_NAME = "claude-sonnet-4-5-YYYYMMDD"   # use the id from `models.retrieve`
-CRITIC_MODEL = "claude-haiku-4-5-YYYYMMDD"
+MODEL_NAME = "claude-sonnet-4-5-20250929"   # Sonnet 4.5, verified 2026-05-08
+CRITIC_MODEL = "claude-haiku-4-5-20251001"  # Haiku 4.5,  verified 2026-05-08
 ```
 
-This README does not ship specific dated snapshot strings because they would go stale.  Always pull the current value from [docs.claude.com/en/docs/about-claude/models](https://docs.claude.com/en/docs/about-claude/models) or from the verification snippet output.
+If those snapshots have since been retired, run `make verify-models` (or the `models.retrieve` snippet in [Setup step 5](#setup)) to get the current alias resolution, then paste the printed id into `config.py`.  Always pull current values from [docs.claude.com/en/docs/about-claude/models](https://docs.claude.com/en/docs/about-claude/models).
 
 ---
 

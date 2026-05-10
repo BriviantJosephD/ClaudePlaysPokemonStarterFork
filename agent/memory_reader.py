@@ -1,5 +1,64 @@
+import logging
 from dataclasses import dataclass
 from enum import IntEnum, IntFlag
+
+logger = logging.getLogger(__name__)
+
+
+class _UnknownEnumMember:
+    """Stand-in returned by ``_safe_enum`` when RAM contains a value that is
+    not a defined member of the target enum.
+
+    Has the same ``.name`` and ``.value`` interface as a real enum member so
+    callers using ``member.name.replace("_", " ")`` keep working. Equality is
+    by name so two unknowns with the same underlying byte compare equal,
+    which is what the ``type1 == type2`` collapse logic needs.
+
+    Why not let the ValueError propagate? RAM can contain garbage during
+    boot sequences, screen transitions, or with weirder ROM revisions. A
+    crash here would stop the whole agent run mid-stream. Logging + falling
+    back to a labeled UNKNOWN keeps the loop alive and surfaces the issue
+    in the run log instead.
+    """
+
+    __slots__ = ("name", "value")
+
+    def __init__(self, enum_cls, value):
+        self.name = f"UNKNOWN_{enum_cls.__name__.upper()}_{value:#04X}"
+        self.value = value
+
+    def __eq__(self, other):
+        if isinstance(other, _UnknownEnumMember):
+            return self.name == other.name
+        return False
+
+    def __hash__(self):
+        return hash(self.name)
+
+    def __repr__(self):
+        return f"<_UnknownEnumMember {self.name}>"
+
+
+def _safe_enum(enum_cls, value):
+    """Return ``enum_cls(value)`` or a labeled UNKNOWN stand-in on ValueError.
+
+    Logs a warning the first time each (enum, value) pair is seen so the
+    operator can investigate without flooding the log on every turn.
+    """
+    try:
+        return enum_cls(value)
+    except ValueError:
+        key = (enum_cls.__name__, value)
+        if key not in _safe_enum._seen:
+            logger.warning(
+                "[MemoryReader] Unknown %s value %#04x — falling back to UNKNOWN",
+                enum_cls.__name__, value,
+            )
+            _safe_enum._seen.add(key)
+        return _UnknownEnumMember(enum_cls, value)
+
+
+_safe_enum._seen = set()
 
 
 class StatusCondition(IntFlag):
@@ -928,7 +987,7 @@ class PokemonRedReader:
             for j in range(4):
                 move_id = self.memory[addr + 8 + j]
                 if move_id != 0:
-                    moves.append(Move(move_id).name.replace("_", " "))
+                    moves.append(_safe_enum(Move, move_id).name.replace("_", " "))
                     move_pp.append(self.memory[addr + 0x1D + j])
 
             # Read nickname
@@ -936,9 +995,11 @@ class PokemonRedReader:
                 self.memory[nickname_addresses[i] : nickname_addresses[i] + 11]
             )
 
-            type1 = PokemonType(self.memory[addr + 5])
-            type2 = PokemonType(self.memory[addr + 6])
-            # If both types are the same, only show one type
+            type1 = _safe_enum(PokemonType, self.memory[addr + 5])
+            type2 = _safe_enum(PokemonType, self.memory[addr + 6])
+            # If both types are the same, only show one type. _UnknownEnumMember
+            # implements __eq__ by name so two unknowns with the same RAM byte
+            # collapse correctly here.
             if type1 == type2:
                 type2 = None
 
@@ -978,12 +1039,12 @@ class PokemonRedReader:
     def read_location(self) -> str:
         """Read current location name"""
         map_id = self.memory[0xD35E]
-        return MapLocation(map_id).name.replace("_", " ")
+        return _safe_enum(MapLocation, map_id).name.replace("_", " ")
 
     def read_tileset(self) -> str:
         """Read current map's tileset name"""
         tileset_id = self.memory[0xD367]
-        return Tileset(tileset_id).name.replace("_", " ")
+        return _safe_enum(Tileset, tileset_id).name.replace("_", " ")
 
     def read_coordinates(self) -> tuple[int, int]:
         """Read player's current X,Y coordinates"""
