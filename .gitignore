@@ -1,12 +1,16 @@
 # Environment variables
 .env
 
-# ROM files
+# ROM files — never commit, regardless of extension or location.
+# `roms/` is the conventional dump directory; `*.zip` covers archived ROMs
+# (a `git add -A` would otherwise pick them up since they don't match *.gb).
 *.gb
 *.gbc
 *.gba
 *.ram
 *.state
+*.zip
+roms/
 
 # Python
 __pycache__/
