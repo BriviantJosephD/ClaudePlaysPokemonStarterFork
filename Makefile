@@ -1,4 +1,4 @@
-.PHONY: help install test emulator-smoke smoke run serve-overlay verify-models clean
+.PHONY: help install test emulator-smoke smoke preflight run serve-overlay verify-models clean
 
 # Default ROM path; override on the command line: `make emulator-smoke ROM=roms/pokemon_red.gb`
 ROM ?= pokemon.gb
@@ -7,6 +7,7 @@ help:
 	@echo "Targets:"
 	@echo "  make install         pip install -r requirements.txt"
 	@echo "  make test            run unit tests (test_reminders.py + test_memory_reader.py)"
+	@echo "  make preflight       pre-run sanity checks (ROM, API key, model aliases, dirs)"
 	@echo "  make emulator-smoke  emulator + ROM smoke test, ZERO API spend (set ROM=path/to.gb)"
 	@echo "  make smoke           5-step agent smoke run (requires ANTHROPIC_API_KEY + ROM)"
 	@echo "  make run             bounded play session (--steps 2000 --display)"
@@ -21,11 +22,14 @@ test:
 	python3 test_reminders.py
 	python3 test_memory_reader.py
 
+preflight:
+	python3 scripts/preflight.py
+
 emulator-smoke:
 	python3 scripts/emulator_smoke.py --rom $(ROM)
 
 smoke:
-	python3 main.py --steps 5 --rom $(ROM)
+	python3 scripts/smoke_test.py --rom $(ROM)
 
 run:
 	python3 main.py --steps 2000 --display

@@ -200,10 +200,15 @@ The agent prints a matching `[Cost]` line at startup so you can see the live est
 ## Tests
 
 ```bash
-python3 test_reminders.py
+make test            # unit tests — reminders + memory reader, no API spend
+make preflight       # sanity checks — ROM, ANTHROPIC_API_KEY, model aliases, write perms
+make emulator-smoke  # emulator + ROM round-trip; ZERO API spend
+make smoke           # 5-step agent loop with real API (~$0.30, under 60s)
 ```
 
-13 cases covering low HP, fainted Pokemon, dialog `None` sentinel, narrow passage detection, navigation-failure nudges, malformed input.
+`make test` runs `test_reminders.py` + `test_memory_reader.py` — 13 reminder cases (low HP, fainted Pokemon, dialog `None` sentinel, narrow passage detection, navigation-failure nudges, malformed input) plus the memory-reader safe-enum suite.
+
+Run `make preflight` before any long session — it catches the common "agent silently does nothing for 5 minutes" failures (missing ROM, unset API key, stale model alias, unwritable `saves/`). Run `make smoke` before pushing changes that touch the agent loop — it spends a few cents to verify screenshot capture, overlay rendering, memory readout, reminders engine, and tool dispatch all still wire up correctly. Neither runs as part of `make test`.
 
 ---
 
