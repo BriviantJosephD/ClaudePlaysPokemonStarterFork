@@ -21,6 +21,8 @@ install:
 test:
 	python3 test_reminders.py
 	python3 test_memory_reader.py
+	python3 test_log_rotation.py
+	python3 test_kb_resume.py
 
 preflight:
 	python3 scripts/preflight.py

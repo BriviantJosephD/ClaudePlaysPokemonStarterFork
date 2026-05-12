@@ -38,11 +38,11 @@ Architectural parity with the production Twitch diagram is **complete** (knowled
 
 - [ ] **Emulator health check / auto-restart.**  If PyBoy hangs, the agent loops on a frozen screen with no recovery.  Add a per-step heartbeat that compares screenshot hashes; if N consecutive screenshots are byte-identical AND the model emitted button presses, log a warning and reset the emulator.
 
-- [ ] **Run log rotation to file.**  Today logs go only to stdout.  For multi-hour streams, configure `logging.handlers.RotatingFileHandler` writing to `logs/agent.log` so post-hoc analysis is feasible.
+- [x] **Run log rotation to file.**  `main.py` now configures a `RotatingFileHandler` at `logs/agent.log` (DEBUG level) alongside the existing stdout handler.  Knobs: `LOG_FILE_PATH`, `LOG_FILE_MAX_BYTES` (10 MB default), `LOG_FILE_BACKUP_COUNT` (5 default), `LOG_TO_FILE_ENABLED` (True default).  Parent dir auto-created; `logs/` was already in `.gitignore`.
 
 - [x] **Pre-run sanity script.**  `scripts/preflight.py` checks ROM exists, `ANTHROPIC_API_KEY` set+non-empty, `MODEL_NAME` + `CRITIC_MODEL` resolve via free `models.retrieve`, and `saves/` / `knowledge_base.json` parent / `logs/` are writable.  Terse `PASS:` / `FAIL: <next step>` output, exits non-zero on any failure.  Wired as `make preflight`.
 
-- [ ] **Resume-from-knowledge-base UX.**  Currently the KB is the only durable signal across crashes.  Add an explicit "load this KB" CLI flag separate from `--load-state` so a user can play forward from a save state with a fresh KB or vice versa.
+- [x] **Resume-from-knowledge-base UX.**  Added `--load-kb PATH` (independent of `--load-state`) and `--fresh-kb` (start empty regardless of file presence; mutually exclusive with `--load-kb`).  `KnowledgeBase.__init__` gained a `fresh` kwarg that skips the file load but leaves the on-disk file intact until the next write.  README documents the mix-and-match patterns.
 
 - [ ] **Walkability overlay color customization.**  Hard-coded RGBA values in `agent/emulator.py:get_collision_overlay_image`.  Move to `config.py` for accessibility (color-blind palette) or stream branding.
 

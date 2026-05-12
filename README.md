@@ -86,6 +86,23 @@ python main.py --load-state saves/autosave_step_2000_final.state --steps 2000
 | `--sound` | off | Enable sound (requires `--display`) |
 | `--max-history` | `30` | Turns before history is summarized |
 | `--load-state` | none | Path to a saved state to resume from |
+| `--load-kb` | none | Path to a `knowledge_base.json` to load; independent of `--load-state` |
+| `--fresh-kb` | off | Start with an empty KB regardless of file presence (mutually exclusive with `--load-kb`) |
+
+The KB and the emulator save state are independent durable signals, so you can mix and match. A few patterns:
+
+```bash
+# Resume the save AND its KB (default behavior — both load from configured paths)
+python main.py --load-state saves/autosave_step_2000_final.state --steps 2000
+
+# Resume the save but discard the KB (e.g. after a critic ran amok)
+python main.py --load-state saves/autosave_step_2000_final.state --fresh-kb --steps 2000
+
+# Fresh emulator state, but reuse a curated KB from a prior run
+python main.py --load-kb prior_runs/kb_after_brock.json --steps 2000
+```
+
+Run logs are written to `logs/agent.log` by default with rotation at 10 MB × 5 backups (`LOG_FILE_PATH`, `LOG_FILE_MAX_BYTES`, `LOG_FILE_BACKUP_COUNT` in `config.py`; set `LOG_TO_FILE_ENABLED = False` to disable). Stdout logging is unchanged. The `logs/` directory is in `.gitignore`.
 
 ---
 
