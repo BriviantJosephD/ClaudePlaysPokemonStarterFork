@@ -69,6 +69,20 @@ OVERLAY_COLOR_SPRITE_OUTLINE = (255, 200, 0, 255)  # opaque yellow — NPC / spr
 OVERLAY_COLOR_PLAYER_OUTLINE = (80, 160, 255, 255) # opaque blue — player tile
 OVERLAY_COLOR_PLAYER_ARROW = (80, 160, 255, 255)   # opaque blue — facing arrow
 
+for _name, _val in (
+    ("OVERLAY_COLOR_WALL_FILL", OVERLAY_COLOR_WALL_FILL),
+    ("OVERLAY_COLOR_WALK_FILL", OVERLAY_COLOR_WALK_FILL),
+    ("OVERLAY_COLOR_SPRITE_OUTLINE", OVERLAY_COLOR_SPRITE_OUTLINE),
+    ("OVERLAY_COLOR_PLAYER_OUTLINE", OVERLAY_COLOR_PLAYER_OUTLINE),
+    ("OVERLAY_COLOR_PLAYER_ARROW", OVERLAY_COLOR_PLAYER_ARROW),
+):
+    assert (
+        isinstance(_val, tuple)
+        and len(_val) == 4
+        and all(isinstance(_c, int) and 0 <= _c <= 255 for _c in _val)
+    ), f"{_name} must be a 4-tuple of ints in [0, 255], got {_val!r}"
+del _name, _val
+
 # Emulator heartbeat / auto-restart. Detects a frozen PyBoy by hashing the
 # screenshot each step and comparing against a sliding window. If the last
 # EMULATOR_HEARTBEAT_WINDOW screenshots are byte-identical AND the model
