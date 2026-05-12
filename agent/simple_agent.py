@@ -3,7 +3,6 @@ import copy
 import io
 import logging
 import os
-import sys
 from collections import deque
 from datetime import datetime
 
@@ -16,8 +15,7 @@ from agent.memory_reader import _safe_enum_reset
 from agent.reminders import compute_helpful_reminders
 from anthropic import Anthropic
 
-# Set up logging
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+# Logging is configured by main.py at import time; do not call basicConfig here.
 logger = logging.getLogger(__name__)
 
 
@@ -268,16 +266,16 @@ class SimpleAgent:
         # The catch is intentionally narrow — emulator I/O and PIL/numpy
         # failures are the realistic failure modes here. AttributeError /
         # TypeError indicate a bug in the helper itself and SHOULD propagate
-        # so the operator notices instead of silently running blind. Print
-        # to stderr in addition to the log so console-watchers also see it.
+        # so the operator notices instead of silently running blind. The
+        # logger writes through the rotating file handler in logs/agent.log
+        # so console-watchers and post-mortems both see the WARNING.
         try:
             self.message_history = [self._build_initial_observation_message()]
         except (OSError, ValueError, RuntimeError) as e:
             logger.exception(f"[Init] Failed to build first observation: {e}")
-            print(
-                "WARNING: first-turn observation failed; agent starting blind. "
-                "Check the run log for details.",
-                file=sys.stderr,
+            logger.error(
+                "[Init] First-turn observation failed; agent starting blind. "
+                "Check the run log for details."
             )
             self.message_history = [
                 {"role": "user", "content": "You may now begin playing."}
@@ -993,20 +991,3 @@ class SimpleAgent:
             except OSError as e:
                 logger.error(f"[Save] Failed to write final state to {final_path}: {e}")
         self.emulator.stop()
-
-
-if __name__ == "__main__":
-    # Get the ROM path relative to this file
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    rom_path = os.path.join(os.path.dirname(current_dir), "pokemon.gb")
-
-    # Create and run agent
-    agent = SimpleAgent(rom_path)
-
-    try:
-        steps_completed = agent.run(num_steps=10)
-        logger.info(f"Agent completed {steps_completed} steps")
-    except KeyboardInterrupt:
-        logger.info("Received keyboard interrupt, stopping")
-    finally:
-        agent.stop()
