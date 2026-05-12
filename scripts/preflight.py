@@ -16,6 +16,7 @@ Exits 0 if every check passes, non-zero otherwise. Run before any session:
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 import tempfile
@@ -96,6 +97,14 @@ def _check_writable_parent(file_path: Path, label: str) -> bool:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Pre-run sanity checks.")
+    parser.add_argument(
+        "--rom",
+        default="pokemon.gb",
+        help="ROM path to check (default: pokemon.gb at repo root, matching main.py)",
+    )
+    args = parser.parse_args()
+
     try:
         import config  # noqa: WPS433 — local import, repo root on sys.path
     except Exception as e:  # noqa: BLE001
@@ -103,7 +112,7 @@ def main() -> int:
         return 1
 
     # Resolve paths relative to the repo root so the script works from any cwd.
-    rom_path = Path(getattr(config, "ROM_PATH", "pokemon.gb"))
+    rom_path = Path(args.rom)
     if not rom_path.is_absolute():
         rom_path = (REPO_ROOT / rom_path).resolve()
 
