@@ -71,3 +71,6 @@ thoughts.log               # redundant with *.log above; kept for clarity
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+
+# Personal notes / per-machine docs — anything matching *.local.md stays local
+*.local.md
