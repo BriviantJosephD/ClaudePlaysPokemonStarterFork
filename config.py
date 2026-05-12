@@ -38,6 +38,14 @@ THINKING_BUDGET_TOKENS = 2000
 
 KNOWLEDGE_BASE_PATH = "knowledge_base.json"
 
+# Run log rotation. Stdout always gets the run log; this controls the optional
+# file sink that survives the terminal closing. Path is mkdir-p'd at startup,
+# and `logs/` is in .gitignore so the file is not committed by accident.
+LOG_TO_FILE_ENABLED = True
+LOG_FILE_PATH = "logs/agent.log"
+LOG_FILE_MAX_BYTES = 10 * 1024 * 1024   # 10 MB per file
+LOG_FILE_BACKUP_COUNT = 5               # keep N rotated backups
+
 # Critic LLM that reviews the knowledge base after each summarization event.
 # Uses a smaller/cheaper model for cost and perspective diversity. The critic
 # is wrapped in a try/except — if the model name is invalid, the failure is

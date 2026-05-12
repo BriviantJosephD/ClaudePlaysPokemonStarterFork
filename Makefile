@@ -20,6 +20,8 @@ install:
 test:
 	python3 test_reminders.py
 	python3 test_memory_reader.py
+	python3 test_log_rotation.py
+	python3 test_kb_resume.py
 
 emulator-smoke:
 	python3 scripts/emulator_smoke.py --rom $(ROM)

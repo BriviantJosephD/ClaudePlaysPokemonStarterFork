@@ -15,10 +15,22 @@ class KnowledgeBase:
     corrupt the XML structure or be misinterpreted as new tags.
     """
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, fresh: bool = False):
+        """Initialize the knowledge base.
+
+        Args:
+            path: Filesystem path where the KB is persisted.
+            fresh: When True, skip loading any existing file and start empty.
+                The first ``add``/``edit``/``delete`` call overwrites the file
+                on disk. Use this to discard a corrupted or stale KB without
+                deleting it by hand.
+        """
         self.path = path
         self.data: dict[str, str] = {}
-        self._load()
+        if not fresh:
+            self._load()
+        else:
+            logger.info(f"Knowledge base starting fresh; ignoring any file at {path}")
 
     def _load(self) -> None:
         """Load data from the JSON file. On any error, start fresh.

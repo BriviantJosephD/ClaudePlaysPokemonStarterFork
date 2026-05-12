@@ -162,7 +162,8 @@ if USE_NAVIGATOR:
 
 
 class SimpleAgent:
-    def __init__(self, rom_path, headless=True, sound=False, max_history=60, load_state=None):
+    def __init__(self, rom_path, headless=True, sound=False, max_history=60,
+                 load_state=None, load_kb=None, fresh_kb=False):
         """Initialize the simple agent.
 
         Args:
@@ -170,6 +171,12 @@ class SimpleAgent:
             headless: Whether to run without display
             sound: Whether to enable sound
             max_history: Maximum number of messages in history before summarization
+            load_state: Optional path to an emulator save state to resume from.
+            load_kb: Optional path to a knowledge_base.json to load. Falls back
+                to KNOWLEDGE_BASE_PATH from config when None.
+            fresh_kb: When True, start with an empty knowledge base regardless
+                of any file at the configured path. Mutually exclusive with
+                load_kb at the CLI layer; if both are passed here, fresh_kb wins.
         """
         # Reset the memory_reader unknown-enum warning dedup so a fresh
         # SimpleAgent re-surfaces RAM corruption it has seen in a previous
@@ -180,7 +187,12 @@ class SimpleAgent:
         self.emulator = Emulator(rom_path, headless, sound)
         self.emulator.initialize()  # Initialize the emulator
         os.makedirs(SAVE_STATE_DIR, exist_ok=True)
-        self.knowledge_base = KnowledgeBase(KNOWLEDGE_BASE_PATH)
+        kb_path = load_kb if load_kb else KNOWLEDGE_BASE_PATH
+        if fresh_kb:
+            logger.info("[KB] --fresh-kb: starting with an empty knowledge base")
+        elif load_kb:
+            logger.info(f"[KB] Loading knowledge base from {load_kb}")
+        self.knowledge_base = KnowledgeBase(kb_path, fresh=fresh_kb)
         self.client = Anthropic()
         # Share the Anthropic client between main agent and critic to avoid
         # spinning up a second HTTP connection pool.
