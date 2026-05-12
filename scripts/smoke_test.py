@@ -151,9 +151,18 @@ def main() -> int:
     # Import the agent only after the skips so missing optional deps during a
     # SKIP path don't masquerade as failures.
     try:
-        from agent.simple_agent import SimpleAgent  # noqa: WPS433
+        from agent import simple_agent as _simple_agent_mod  # noqa: WPS433
+        SimpleAgent = _simple_agent_mod.SimpleAgent
     except Exception as e:  # noqa: BLE001
         return _fail(f"import SimpleAgent: {type(e).__name__}: {e}")
+
+    # Disable the heartbeat watchdog for the duration of the smoke test. The
+    # smoke runs from the boot screen with only five button-press turns, so a
+    # legitimate intro-cutscene "stall" could otherwise look like a hang and
+    # trip the reset path. Patching the module-level binding (not config) is
+    # required because simple_agent.py captures EMULATOR_HEARTBEAT_ENABLED at
+    # import time via `from config import ...`.
+    _simple_agent_mod.EMULATOR_HEARTBEAT_ENABLED = False
 
     print(f"SMOKE START: rom={rom_path} steps={SMOKE_STEPS}")
 
