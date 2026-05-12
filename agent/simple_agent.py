@@ -4,9 +4,10 @@ import io
 import logging
 import os
 import sys
+from collections import deque
 from datetime import datetime
 
-from config import MAX_TOKENS, MODEL_NAME, TEMPERATURE, USE_NAVIGATOR, SAVE_STATE_INTERVAL, SAVE_STATE_DIR, THOUGHTS_LOG_PATH, THOUGHTS_LOG_TRUNCATE_ON_START, THINKING_ENABLED, THINKING_BUDGET_TOKENS, KNOWLEDGE_BASE_PATH, CRITIC_ENABLED, CRITIC_MODEL, CRITIC_MAX_TOKENS, CRITIC_INTERVAL, OVERLAY_ENABLED, MODEL_PRICING_PER_MTOK
+from config import MAX_TOKENS, MODEL_NAME, TEMPERATURE, USE_NAVIGATOR, SAVE_STATE_INTERVAL, SAVE_STATE_DIR, THOUGHTS_LOG_PATH, THOUGHTS_LOG_TRUNCATE_ON_START, THINKING_ENABLED, THINKING_BUDGET_TOKENS, KNOWLEDGE_BASE_PATH, CRITIC_ENABLED, CRITIC_MODEL, CRITIC_MAX_TOKENS, CRITIC_INTERVAL, OVERLAY_ENABLED, MODEL_PRICING_PER_MTOK, EMULATOR_HEARTBEAT_ENABLED, EMULATOR_HEARTBEAT_WINDOW
 
 from agent.critic import KnowledgeBaseCritic
 from agent.emulator import Emulator
@@ -205,6 +206,18 @@ class SimpleAgent:
         # triggers a critic review.
         self._summary_count = 0
 
+        # Heartbeat watchdog state. _hash_window stores the last N screenshot
+        # hashes; _pressed_window stores whether the model emitted button
+        # presses on the corresponding step. Both share the same deque length
+        # so a hang is only declared when EVERY sample in the window is both
+        # frozen AND following a button press. Tracks the most recent
+        # autosave path so a reset can reload it. None means "no save yet
+        # this session" — reset will reinit but not reload.
+        self._hash_window = deque(maxlen=EMULATOR_HEARTBEAT_WINDOW)
+        self._pressed_window = deque(maxlen=EMULATOR_HEARTBEAT_WINDOW)
+        self._latest_save_path = load_state  # may be None
+        self._heartbeat_resets = 0
+
         # Ensure the directory containing THOUGHTS_LOG_PATH exists so
         # append_thought() can write even when the user points the log at a
         # subdirectory like "logs/thoughts.log".
@@ -354,6 +367,81 @@ class SimpleAgent:
             })
 
         return {"role": "user", "content": content}
+
+    def _record_heartbeat(self, model_pressed_buttons):
+        """Sample the emulator screenshot hash for the watchdog.
+
+        Appends the current screenshot hash + whether the model emitted any
+        button-press tool calls this step. Returns True if a hang is
+        detected (window full, all hashes identical, at least one button
+        press in the window).
+
+        A True return indicates the caller should reset the emulator.
+
+        Args:
+            model_pressed_buttons: True iff the model issued press_buttons
+                or navigate_to on this step. Steps where the model called
+                only update_knowledge_base, or emitted no tool calls at all,
+                MUST pass False here — a "screen unchanged because the
+                model deliberately did nothing" state is not a hang.
+        """
+        if not EMULATOR_HEARTBEAT_ENABLED:
+            return False
+        try:
+            current_hash = self.emulator.screenshot_hash()
+        except Exception:  # noqa: BLE001 — never crash the run loop over a watchdog sample
+            logger.exception("[Heartbeat] Failed to hash screenshot; skipping sample")
+            return False
+
+        self._hash_window.append(current_hash)
+        self._pressed_window.append(bool(model_pressed_buttons))
+
+        # Need a full window to make a call. A short window of identical
+        # hashes is normal (e.g. dialog-scroll waits, menu animations).
+        if len(self._hash_window) < EMULATOR_HEARTBEAT_WINDOW:
+            return False
+
+        # All hashes must match AND at least one step in the window must
+        # have come after a button press. Otherwise the emulator was
+        # legitimately idle and we leave it alone.
+        all_identical = len(set(self._hash_window)) == 1
+        any_pressed = any(self._pressed_window)
+        return all_identical and any_pressed
+
+    def _reset_emulator(self):
+        """Tear down and rebuild the emulator after a detected hang.
+
+        Reloads the most recent autosave if one exists; otherwise the
+        agent restarts from the ROM's boot state and the next turn's
+        observation will reflect that. Clears the heartbeat window so a
+        single false positive can't cascade into a reset loop.
+        """
+        self._heartbeat_resets += 1
+        logger.warning(
+            "[Heartbeat] Emulator appears hung — %d identical frames after button presses. "
+            "Reinitializing PyBoy (reset #%d). Latest save: %r",
+            EMULATOR_HEARTBEAT_WINDOW, self._heartbeat_resets, self._latest_save_path,
+        )
+        try:
+            self.emulator.reinitialize()
+        except Exception:  # noqa: BLE001 — reinit failure is fatal, surface it
+            logger.exception("[Heartbeat] reinitialize() failed; agent cannot recover")
+            raise
+
+        if self._latest_save_path and os.path.exists(self._latest_save_path):
+            try:
+                self.emulator.load_state(self._latest_save_path)
+                logger.warning("[Heartbeat] Reloaded save state from %s", self._latest_save_path)
+            except (OSError, ValueError) as e:
+                logger.error(
+                    "[Heartbeat] Failed to reload save state %s: %s. "
+                    "Continuing from ROM boot.", self._latest_save_path, e,
+                )
+        else:
+            logger.warning("[Heartbeat] No save state to reload; resumed from ROM boot.")
+
+        self._hash_window.clear()
+        self._pressed_window.clear()
 
     def _log_cost_estimate(self):
         """Print an order-of-magnitude $/hour estimate for the configured run.
@@ -661,6 +749,16 @@ class SimpleAgent:
                     elif block.type == "thinking":
                         logger.info(f"[Thinking] {block.thinking}")
 
+                # Did the model emit any button-pressing tool calls this
+                # step? Heartbeat watchdog needs this to distinguish a hang
+                # (frozen screen after presses) from intentional waits
+                # (e.g. step where the model only updated the KB or text-
+                # scrolled with no presses queued).
+                model_pressed_buttons = any(
+                    tc.name in ("press_buttons", "navigate_to")
+                    for tc in tool_calls
+                )
+
                 # Process tool calls
                 if tool_calls:
                     # Add assistant message to history.
@@ -714,6 +812,15 @@ class SimpleAgent:
                 self._total_steps += 1
                 logger.info(f"Completed step {steps_completed}/{num_steps} (total {self._total_steps})")
 
+                # Heartbeat sample. Done AFTER tool dispatch so the hash
+                # reflects the post-action frame; this is the frame that
+                # would be frozen if PyBoy hung mid-step. A True return
+                # means the watchdog wants a reset — do it before the next
+                # step so the next observation reflects the recovered
+                # emulator.
+                if self._record_heartbeat(model_pressed_buttons):
+                    self._reset_emulator()
+
                 # Use the persistent total counter so the save interval still
                 # triggers when run() is called in small batches.
                 if self._total_steps % SAVE_STATE_INTERVAL == 0:
@@ -722,6 +829,9 @@ class SimpleAgent:
                     )
                     try:
                         self.emulator.save_state(save_path)
+                        # Track the most recent successful save so a
+                        # heartbeat-triggered reset can reload from here.
+                        self._latest_save_path = save_path
                         logger.info(f"[Save] Wrote state to {save_path}")
                     except OSError as e:
                         logger.error(f"[Save] Failed to write state to {save_path}: {e}")

@@ -36,7 +36,7 @@ Architectural parity with the production Twitch diagram is **complete** (knowled
 
 ## Tier 3 — Reach goals (skip until something bites)
 
-- [ ] **Emulator health check / auto-restart.**  If PyBoy hangs, the agent loops on a frozen screen with no recovery.  Add a per-step heartbeat that compares screenshot hashes; if N consecutive screenshots are byte-identical AND the model emitted button presses, log a warning and reset the emulator.
+- [x] **Emulator health check / auto-restart.**  Per-step SHA-1 hash of `pyboy.screen.ndarray`, sliding window `EMULATOR_HEARTBEAT_WINDOW` (default 5), gated on `EMULATOR_HEARTBEAT_ENABLED`.  Window of identical hashes triggers a reset ONLY when the model emitted `press_buttons`/`navigate_to` in the window — pure-KB or no-tool turns never count as a hang.  Reset rebuilds PyBoy via `Emulator.reinitialize()` and reloads the most recent autosave (tracked across the run loop and on `--load-state`).  10-case test suite (`test_heartbeat.py`) covers window discipline, press-gating, reset paths, hash-failure resilience.
 
 - [ ] **Run log rotation to file.**  Today logs go only to stdout.  For multi-hour streams, configure `logging.handlers.RotatingFileHandler` writing to `logs/agent.log` so post-hoc analysis is feasible.
 
@@ -44,7 +44,7 @@ Architectural parity with the production Twitch diagram is **complete** (knowled
 
 - [ ] **Resume-from-knowledge-base UX.**  Currently the KB is the only durable signal across crashes.  Add an explicit "load this KB" CLI flag separate from `--load-state` so a user can play forward from a save state with a fresh KB or vice versa.
 
-- [ ] **Walkability overlay color customization.**  Hard-coded RGBA values in `agent/emulator.py:get_collision_overlay_image`.  Move to `config.py` for accessibility (color-blind palette) or stream branding.
+- [x] **Walkability overlay color customization.**  Moved the five hard-coded RGBA tuples (wall fill, walk fill, sprite outline, player outline, player arrow) into `config.py` as `OVERLAY_COLOR_*` constants with comments.  Defaults preserve the original palette; README config-knob table updated.
 
 - [ ] **Smoke-test script that runs 5 agent steps with a real ROM.**  No assertions about gameplay quality — just verifies the loop doesn't crash, tools dispatch, screenshot + overlay + memory + reminders all populate.  Should be fast enough to run before every push.
 

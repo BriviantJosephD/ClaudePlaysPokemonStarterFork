@@ -6,7 +6,7 @@ ROM ?= pokemon.gb
 help:
 	@echo "Targets:"
 	@echo "  make install         pip install -r requirements.txt"
-	@echo "  make test            run unit tests (test_reminders.py + test_memory_reader.py)"
+	@echo "  make test            run unit tests (reminders + memory_reader + heartbeat)"
 	@echo "  make emulator-smoke  emulator + ROM smoke test, ZERO API spend (set ROM=path/to.gb)"
 	@echo "  make smoke           5-step agent smoke run (requires ANTHROPIC_API_KEY + ROM)"
 	@echo "  make run             bounded play session (--steps 2000 --display)"
@@ -20,6 +20,7 @@ install:
 test:
 	python3 test_reminders.py
 	python3 test_memory_reader.py
+	python3 test_heartbeat.py
 
 emulator-smoke:
 	python3 scripts/emulator_smoke.py --rom $(ROM)

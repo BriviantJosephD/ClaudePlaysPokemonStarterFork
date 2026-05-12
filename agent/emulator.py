@@ -1,3 +1,4 @@
+import hashlib
 import io
 import logging
 import os
@@ -6,6 +7,13 @@ from collections import deque
 import heapq
 
 from agent.memory_reader import PokemonRedReader, StatusCondition
+from config import (
+    OVERLAY_COLOR_PLAYER_ARROW,
+    OVERLAY_COLOR_PLAYER_OUTLINE,
+    OVERLAY_COLOR_SPRITE_OUTLINE,
+    OVERLAY_COLOR_WALK_FILL,
+    OVERLAY_COLOR_WALL_FILL,
+)
 from PIL import Image, ImageDraw
 from pyboy import PyBoy
 
@@ -14,18 +22,51 @@ logger = logging.getLogger(__name__)
 
 class Emulator:
     def __init__(self, rom_path, headless=True, sound=False):
-        if headless:
+        # Stash construction args so the agent can reinitialize after a
+        # detected hang without the caller having to plumb them through.
+        self._rom_path = rom_path
+        self._headless = headless
+        self._sound = sound
+        self._build_pyboy()
+
+    def _build_pyboy(self):
+        """Construct the PyBoy instance using the stashed init args."""
+        if self._headless:
             self.pyboy = PyBoy(
-                rom_path,
+                self._rom_path,
                 window="null",
                 cgb=True,
             )
         else:
             self.pyboy = PyBoy(
-                rom_path,
+                self._rom_path,
                 cgb=True,
-                sound=sound,
+                sound=self._sound,
             )
+
+    def reinitialize(self):
+        """Tear down and rebuild PyBoy from scratch.
+
+        Used by the heartbeat watchdog when the emulator appears hung.
+        Callers are responsible for reloading any save state after this
+        returns, since reinit drops all in-RAM game state.
+        """
+        try:
+            self.pyboy.stop()
+        except Exception:  # noqa: BLE001 — stop() failure must not block recovery
+            logger.exception("[Heartbeat] pyboy.stop() failed during reinit; continuing")
+        self._build_pyboy()
+        self.initialize()
+
+    def screenshot_hash(self):
+        """Return a SHA-1 hex digest of the current screenshot's raw pixels.
+
+        Used by the heartbeat watchdog to detect a frozen emulator. Hashing
+        the raw ndarray bytes is ~100x faster than PNG-encoding and
+        sufficient for byte-identical detection — two frames hash to the
+        same value iff every pixel matches.
+        """
+        return hashlib.sha1(self.pyboy.screen.ndarray.tobytes()).hexdigest()
 
     def tick(self, frames):
         """Advance the emulator by the specified number of frames."""
@@ -274,12 +315,14 @@ class Emulator:
             overlay = Image.new("RGBA", (up_w, up_h), (0, 0, 0, 0))
             draw = ImageDraw.Draw(overlay)
 
-            # Color constants
-            WALL_FILL = (220, 30, 30, 110)
-            WALK_FILL = (40, 200, 80, 70)
-            SPRITE_OUTLINE = (255, 200, 0, 255)
-            PLAYER_OUTLINE = (80, 160, 255, 255)
-            PLAYER_ARROW = (80, 160, 255, 255)
+            # Color constants — sourced from config.py so operators can
+            # retune for color-blind palettes or stream branding without
+            # editing emulator code. See OVERLAY_COLOR_* in config.py.
+            WALL_FILL = OVERLAY_COLOR_WALL_FILL
+            WALK_FILL = OVERLAY_COLOR_WALK_FILL
+            SPRITE_OUTLINE = OVERLAY_COLOR_SPRITE_OUTLINE
+            PLAYER_OUTLINE = OVERLAY_COLOR_PLAYER_OUTLINE
+            PLAYER_ARROW = OVERLAY_COLOR_PLAYER_ARROW
 
             for row in range(9):
                 for col in range(10):

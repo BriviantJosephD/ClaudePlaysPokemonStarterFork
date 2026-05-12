@@ -122,6 +122,9 @@ The panel polls `thoughts.log` once per second, dark theme, monospace, autoscrol
 | `THINKING_ENABLED` | `True` | Adds the "Reasoning" panel; ~2× output tokens per turn |
 | `THINKING_BUDGET_TOKENS` | `2000` | Max tokens spent on thinking; must be `< MAX_TOKENS` |
 | `OVERLAY_ENABLED` | `True` | Doubles per-turn image bandwidth (second 320×288 PNG); turn off for cost-sensitive long runs |
+| `OVERLAY_COLOR_*` | see `config.py` | RGBA tuples for walls / walkable / sprite / player / arrow. Retune for color-blind palettes or stream branding |
+| `EMULATOR_HEARTBEAT_ENABLED` | `True` | Watchdog that resets PyBoy if N identical frames follow button presses (catches emulator hangs) |
+| `EMULATOR_HEARTBEAT_WINDOW` | `5` | Number of consecutive identical frames required before a reset fires. Must be `>= 2` |
 | `CRITIC_ENABLED` | `True` | One Haiku call per summarization (~every 30 turns); cheap but not free |
 | `CRITIC_MODEL` | `claude-haiku-4-5` | Cheap reviewer model.  **Silent failure:** if the alias is invalid, the agent logs a warning and continues with no critic feedback — the run does not crash.  Verify before a long run. |
 | `SAVE_STATE_INTERVAL` | `50` | Steps between auto-checkpoints |
@@ -194,16 +197,21 @@ The agent prints a matching `[Cost]` line at startup so you can see the live est
 | `agent/reminders.py` | Situational reminder rules |
 | `thoughts.html` | OBS-friendly stream-of-thought overlay |
 | `test_reminders.py` | Unit tests for the reminder rules |
+| `test_memory_reader.py` | Unit tests for the safe-enum RAM-decoding fallback |
+| `test_heartbeat.py` | Unit tests for the emulator hang-detection watchdog |
 
 ---
 
 ## Tests
 
 ```bash
-python3 test_reminders.py
+make test
 ```
 
-13 cases covering low HP, fainted Pokemon, dialog `None` sentinel, narrow passage detection, navigation-failure nudges, malformed input.
+Three suites:
+- `test_reminders.py` — 15 cases for low HP, fainted Pokemon, dialog `None` sentinel, narrow passage detection, navigation-failure nudges, malformed input.
+- `test_memory_reader.py` — 11 cases for the safe-enum fallback path that keeps the agent running when RAM holds bytes outside the known enum range.
+- `test_heartbeat.py` — 10 cases for the emulator watchdog: window discipline, button-press gating, reset-path coverage, hash-failure resilience.
 
 ---
 
