@@ -50,6 +50,14 @@ Architectural parity with the production Twitch diagram is **complete** (knowled
 
 ---
 
+## Post-ship follow-ups — non-blocking polish flagged by final code review
+
+- [ ] **Logging regression guard.**  Add an integration test that writes a `logger.warning(...)` and asserts the line appears in `logs/agent.log`.  Stdlib `logging` propagation is well-understood, but the wiring between `_configure_logging` in `main.py` and the per-module loggers is exactly the kind of thing a future refactor will quietly break.  One-shot test, runs under `make test`.
+
+- [ ] **`LOG_COST_ESTIMATE` toggle.**  `SimpleAgent._log_cost_estimate()` currently runs unconditionally at startup.  Add a config flag (default `True`) so benchmark/profiling runs can suppress the `[Cost]` block without editing code.  Trivial — read the flag in `__init__` and early-return.
+
+---
+
 ## Done — kept here for reference
 
 - [x] Knowledge base tool with persistent JSON storage (`agent/knowledge_base.py`)
