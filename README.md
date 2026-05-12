@@ -23,14 +23,11 @@ Open items tracked in [`todo.md`](todo.md).
 
 ## Setup
 
-1. Clone and check out the working branch.  Create an explicit local tracking branch off the remote — this form works on any Git version, unlike a bare `git checkout ClaudeUpdates` which depends on the DWIM behavior added in Git 2.23+:
+1. Clone the repo.  All Tier 1-3 work is on `main`, so the default branch is what you want:
    ```bash
    git clone git@github.com:BriviantJosephD/ClaudePlaysPokemonStarterFork.git
    cd ClaudePlaysPokemonStarterFork
-   git checkout -b ClaudeUpdates origin/ClaudeUpdates   # or `git switch ClaudeUpdates` on Git 2.23+
-   git branch --show-current                            # should print ClaudeUpdates
    ```
-   Once `ClaudeUpdates` is merged into `main` upstream, you can skip this step and stay on the default branch.
 
 2. Install Python deps:
    ```bash
@@ -206,16 +203,23 @@ The agent prints a matching `[Cost]` line at startup so you can see the live est
 |---|---|
 | `main.py` | CLI entry point |
 | `config.py` | All configuration knobs |
+| `Makefile` | `install` / `test` / `preflight` / `smoke` / `emulator-smoke` / `run` / `serve-overlay` / `verify-models` / `clean` |
 | `agent/simple_agent.py` | Main loop, history/summarization, tool dispatch |
 | `agent/emulator.py` | PyBoy wrapper, screenshot, collision map, save/load state |
 | `agent/memory_reader.py` | Reads RAM state (party, badges, dialog, inventory) |
 | `agent/knowledge_base.py` | Persistent JSON-backed notes |
 | `agent/critic.py` | Haiku-based KB reviewer |
 | `agent/reminders.py` | Situational reminder rules |
+| `scripts/preflight.py` | Pre-run sanity checks (ROM, API key, model aliases, write perms) |
+| `scripts/smoke_test.py` | 5-step agent-loop smoke (small API spend) |
+| `scripts/emulator_smoke.py` | Emulator + ROM smoke (zero API spend) |
+| `scripts/serve_overlay.sh` | Static server for the OBS thoughts overlay |
 | `thoughts.html` | OBS-friendly stream-of-thought overlay |
 | `test_reminders.py` | Unit tests for the reminder rules |
 | `test_memory_reader.py` | Unit tests for the safe-enum RAM-decoding fallback |
 | `test_heartbeat.py` | Unit tests for the emulator hang-detection watchdog |
+| `test_log_rotation.py` | Unit tests for the `RotatingFileHandler` wiring |
+| `test_kb_resume.py` | Unit tests for `--load-kb` / `--fresh-kb` flag semantics |
 
 ---
 
