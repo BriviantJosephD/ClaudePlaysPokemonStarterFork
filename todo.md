@@ -40,13 +40,13 @@ Architectural parity with the production Twitch diagram is **complete** (knowled
 
 - [ ] **Run log rotation to file.**  Today logs go only to stdout.  For multi-hour streams, configure `logging.handlers.RotatingFileHandler` writing to `logs/agent.log` so post-hoc analysis is feasible.
 
-- [ ] **Pre-run sanity script.**  `scripts/preflight.py` that checks: ROM exists, `ANTHROPIC_API_KEY` set, `MODEL_NAME` resolves (1-token call), `CRITIC_MODEL` resolves, write permission to `saves/` and `knowledge_base.json`.  Exits non-zero with a clear message if any check fails.  Save users from "agent silently does nothing for 5 minutes" debugging.
+- [x] **Pre-run sanity script.**  `scripts/preflight.py` checks ROM exists, `ANTHROPIC_API_KEY` set+non-empty, `MODEL_NAME` + `CRITIC_MODEL` resolve via free `models.retrieve`, and `saves/` / `knowledge_base.json` parent / `logs/` are writable.  Terse `PASS:` / `FAIL: <next step>` output, exits non-zero on any failure.  Wired as `make preflight`.
 
 - [ ] **Resume-from-knowledge-base UX.**  Currently the KB is the only durable signal across crashes.  Add an explicit "load this KB" CLI flag separate from `--load-state` so a user can play forward from a save state with a fresh KB or vice versa.
 
 - [ ] **Walkability overlay color customization.**  Hard-coded RGBA values in `agent/emulator.py:get_collision_overlay_image`.  Move to `config.py` for accessibility (color-blind palette) or stream branding.
 
-- [ ] **Smoke-test script that runs 5 agent steps with a real ROM.**  No assertions about gameplay quality — just verifies the loop doesn't crash, tools dispatch, screenshot + overlay + memory + reminders all populate.  Should be fast enough to run before every push.
+- [x] **Smoke-test script that runs 5 agent steps with a real ROM.**  `scripts/smoke_test.py` runs SimpleAgent for exactly 5 steps and on each step verifies screenshot capture, overlay generation, memory readout, reminders engine output, and at least one successful tool dispatch.  No gameplay assertions.  Skips with exit 2 if ROM or `ANTHROPIC_API_KEY` is missing.  Wired as `make smoke` (replaces the `python main.py --steps 5` stub).  Kept `emulator_smoke.py` alongside — it covers the zero-API-spend hardware path, this covers the agent loop.
 
 ---
 
