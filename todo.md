@@ -36,7 +36,7 @@ Architectural parity with the production Twitch diagram is **complete** (knowled
 
 ## Tier 3 — Reach goals (skip until something bites)
 
-- [ ] **Emulator health check / auto-restart.**  If PyBoy hangs, the agent loops on a frozen screen with no recovery.  Add a per-step heartbeat that compares screenshot hashes; if N consecutive screenshots are byte-identical AND the model emitted button presses, log a warning and reset the emulator.
+- [x] **Emulator health check / auto-restart.**  Per-step SHA-1 hash of `pyboy.screen.ndarray`, sliding window `EMULATOR_HEARTBEAT_WINDOW` (default 5), gated on `EMULATOR_HEARTBEAT_ENABLED`.  Window of identical hashes triggers a reset ONLY when the model emitted `press_buttons`/`navigate_to` in the window — pure-KB or no-tool turns never count as a hang.  Reset rebuilds PyBoy via `Emulator.reinitialize()` and reloads the most recent autosave (tracked across the run loop and on `--load-state`).  10-case test suite (`test_heartbeat.py`) covers window discipline, press-gating, reset paths, hash-failure resilience.
 
 - [x] **Run log rotation to file.**  `main.py` now configures a `RotatingFileHandler` at `logs/agent.log` (DEBUG level) alongside the existing stdout handler.  Knobs: `LOG_FILE_PATH`, `LOG_FILE_MAX_BYTES` (10 MB default), `LOG_FILE_BACKUP_COUNT` (5 default), `LOG_TO_FILE_ENABLED` (True default).  Parent dir auto-created; `logs/` was already in `.gitignore`.
 
@@ -44,7 +44,7 @@ Architectural parity with the production Twitch diagram is **complete** (knowled
 
 - [x] **Resume-from-knowledge-base UX.**  Added `--load-kb PATH` (independent of `--load-state`) and `--fresh-kb` (start empty regardless of file presence; mutually exclusive with `--load-kb`).  `KnowledgeBase.__init__` gained a `fresh` kwarg that skips the file load but leaves the on-disk file intact until the next write.  README documents the mix-and-match patterns.
 
-- [ ] **Walkability overlay color customization.**  Hard-coded RGBA values in `agent/emulator.py:get_collision_overlay_image`.  Move to `config.py` for accessibility (color-blind palette) or stream branding.
+- [x] **Walkability overlay color customization.**  Moved the five hard-coded RGBA tuples (wall fill, walk fill, sprite outline, player outline, player arrow) into `config.py` as `OVERLAY_COLOR_*` constants with comments.  Defaults preserve the original palette; README config-knob table updated.
 
 - [x] **Smoke-test script that runs 5 agent steps with a real ROM.**  `scripts/smoke_test.py` runs SimpleAgent for exactly 5 steps and on each step verifies screenshot capture, overlay generation, memory readout, reminders engine output, and at least one successful tool dispatch.  No gameplay assertions.  Skips with exit 2 if ROM or `ANTHROPIC_API_KEY` is missing.  Wired as `make smoke` (replaces the `python main.py --steps 5` stub).  Kept `emulator_smoke.py` alongside — it covers the zero-API-spend hardware path, this covers the agent loop.
 

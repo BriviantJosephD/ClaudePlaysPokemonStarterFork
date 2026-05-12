@@ -67,6 +67,46 @@ CRITIC_INTERVAL = 1
 # sessions where token cost matters more than navigator-style grounding.
 OVERLAY_ENABLED = True
 
+# Walkability overlay colors (RGBA tuples). Tweak for color-blind palettes
+# or stream branding. Alpha controls translucency — fills are intentionally
+# semi-transparent so the underlying screenshot remains legible. Defaults
+# preserve the original behavior; outlines are fully opaque.
+OVERLAY_COLOR_WALL_FILL = (220, 30, 30, 110)     # translucent red — blocked tile
+OVERLAY_COLOR_WALK_FILL = (40, 200, 80, 70)      # translucent green — walkable tile
+OVERLAY_COLOR_SPRITE_OUTLINE = (255, 200, 0, 255)  # opaque yellow — NPC / sprite
+OVERLAY_COLOR_PLAYER_OUTLINE = (80, 160, 255, 255) # opaque blue — player tile
+OVERLAY_COLOR_PLAYER_ARROW = (80, 160, 255, 255)   # opaque blue — facing arrow
+
+for _name, _val in (
+    ("OVERLAY_COLOR_WALL_FILL", OVERLAY_COLOR_WALL_FILL),
+    ("OVERLAY_COLOR_WALK_FILL", OVERLAY_COLOR_WALK_FILL),
+    ("OVERLAY_COLOR_SPRITE_OUTLINE", OVERLAY_COLOR_SPRITE_OUTLINE),
+    ("OVERLAY_COLOR_PLAYER_OUTLINE", OVERLAY_COLOR_PLAYER_OUTLINE),
+    ("OVERLAY_COLOR_PLAYER_ARROW", OVERLAY_COLOR_PLAYER_ARROW),
+):
+    assert (
+        isinstance(_val, tuple)
+        and len(_val) == 4
+        and all(isinstance(_c, int) and 0 <= _c <= 255 for _c in _val)
+    ), f"{_name} must be a 4-tuple of ints in [0, 255], got {_val!r}"
+del _name, _val
+
+# Emulator heartbeat / auto-restart. Detects a frozen PyBoy by hashing the
+# screenshot each step and comparing against a sliding window. If the last
+# EMULATOR_HEARTBEAT_WINDOW screenshots are byte-identical AND the model
+# emitted at least one button press during those steps, the agent logs a
+# WARNING and re-initializes the emulator (reloading the most recent save
+# state if one exists). Intentional no-input steps (e.g. waiting on a
+# scrolling text box where the model called a non-emulator tool) do NOT
+# count as hangs and do NOT trigger a reset.
+EMULATOR_HEARTBEAT_ENABLED = True
+EMULATOR_HEARTBEAT_WINDOW = 5
+
+assert isinstance(EMULATOR_HEARTBEAT_WINDOW, int) and EMULATOR_HEARTBEAT_WINDOW >= 2, (
+    "EMULATOR_HEARTBEAT_WINDOW must be an int >= 2 "
+    "(a single sample cannot indicate a hang)"
+)
+
 
 # Fail-fast invariants — catch obvious misconfiguration at import time
 # instead of letting it explode mid-run.

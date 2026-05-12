@@ -139,6 +139,9 @@ The panel polls `thoughts.log` once per second, dark theme, monospace, autoscrol
 | `THINKING_ENABLED` | `True` | Adds the "Reasoning" panel; ~2× output tokens per turn |
 | `THINKING_BUDGET_TOKENS` | `2000` | Max tokens spent on thinking; must be `< MAX_TOKENS` |
 | `OVERLAY_ENABLED` | `True` | Doubles per-turn image bandwidth (second 320×288 PNG); turn off for cost-sensitive long runs |
+| `OVERLAY_COLOR_*` | see `config.py` | RGBA tuples for walls / walkable / sprite / player / arrow. Retune for color-blind palettes or stream branding |
+| `EMULATOR_HEARTBEAT_ENABLED` | `True` | Watchdog that resets PyBoy if N identical frames follow button presses (catches emulator hangs) |
+| `EMULATOR_HEARTBEAT_WINDOW` | `5` | Number of consecutive identical frames required before a reset fires. Must be `>= 2` |
 | `CRITIC_ENABLED` | `True` | One Haiku call per summarization (~every 30 turns); cheap but not free |
 | `CRITIC_MODEL` | `claude-haiku-4-5` | Cheap reviewer model.  **Silent failure:** if the alias is invalid, the agent logs a warning and continues with no critic feedback — the run does not crash.  Verify before a long run. |
 | `SAVE_STATE_INTERVAL` | `50` | Steps between auto-checkpoints |
@@ -211,19 +214,26 @@ The agent prints a matching `[Cost]` line at startup so you can see the live est
 | `agent/reminders.py` | Situational reminder rules |
 | `thoughts.html` | OBS-friendly stream-of-thought overlay |
 | `test_reminders.py` | Unit tests for the reminder rules |
+| `test_memory_reader.py` | Unit tests for the safe-enum RAM-decoding fallback |
+| `test_heartbeat.py` | Unit tests for the emulator hang-detection watchdog |
 
 ---
 
 ## Tests
 
 ```bash
-make test            # unit tests — reminders + memory reader, no API spend
+make test            # unit tests — all stdlib, no API spend
 make preflight       # sanity checks — ROM, ANTHROPIC_API_KEY, model aliases, write perms
 make emulator-smoke  # emulator + ROM round-trip; ZERO API spend
 make smoke           # 5-step agent loop with real API (~$0.30, under 60s)
 ```
 
-`make test` runs `test_reminders.py` + `test_memory_reader.py` — 13 reminder cases (low HP, fainted Pokemon, dialog `None` sentinel, narrow passage detection, navigation-failure nudges, malformed input) plus the memory-reader safe-enum suite.
+`make test` runs five suites:
+- `test_reminders.py` — 15 cases for low HP, fainted Pokemon, dialog `None` sentinel, narrow passage detection, navigation-failure nudges, malformed input.
+- `test_memory_reader.py` — 11 cases for the safe-enum fallback path that keeps the agent running when RAM holds bytes outside the known enum range.
+- `test_heartbeat.py` — 10 cases for the emulator watchdog: window discipline, button-press gating, reset-path coverage, hash-failure resilience.
+- `test_log_rotation.py` — 3 cases for `RotatingFileHandler` wiring and `logs/` autocreation.
+- `test_kb_resume.py` — 8 cases for `--load-kb` / `--fresh-kb` flag semantics.
 
 Run `make preflight` before any long session — it catches the common "agent silently does nothing for 5 minutes" failures (missing ROM, unset API key, stale model alias, unwritable `saves/`). Run `make smoke` before pushing changes that touch the agent loop — it spends a few cents to verify screenshot capture, overlay rendering, memory readout, reminders engine, and tool dispatch all still wire up correctly. Neither runs as part of `make test`.
 
