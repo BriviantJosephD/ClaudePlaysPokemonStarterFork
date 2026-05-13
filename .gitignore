@@ -74,3 +74,6 @@ thoughts.log               # redundant with *.log above; kept for clarity
 
 # Personal notes / per-machine docs — anything matching *.local.md stays local
 *.local.md
+
+# Concept map / design diagrams — local reference, not source of truth
+CPP_excalidraw.png
